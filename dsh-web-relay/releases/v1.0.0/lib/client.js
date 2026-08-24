@@ -1294,22 +1294,24 @@ window.__ModuleLoader__.load({
             ? h('div', { style: warnStyle }, T.geminiNotConfigured)
             : (config && h('div', { style: hintStyle }, `${T.configVersion}${config.version || '?'} · ${config.geminiConfigured ? T.configReady + ' · model: ' + config.model : T.configNotReady} · shell: ${config.shellAvailable ? '✓' : '✗'} · apiProxy: ${config.apiProxyAvailable ? '✓' : '✗'}`)),
           // 协议版本选择 + 可展开全文（中/英随界面语言；打包上下文与 Step 实施按所选版本执行）
-          protocol && h('div', { style: { display: 'flex', alignItems: 'center', gap: 6, margin: '2px 0' } },
-            h('select', {
-              value: protocolVersion,
-              onChange: (e) => setProtocolVersion(e.target.value),
-              title: T.protoTitle,
-              'aria-label': T.protoTitle,
-              style: protoSelectStyle
-            },
-              h('option', { value: 'v1.5' }, T.protoV15),
-              h('option', { value: 'v1.6' }, T.protoV16)
+          protocol && h('div', { style: { display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 4, margin: '2px 0' } },
+            h('div', { style: { display: 'flex', alignItems: 'center', gap: 6 } },
+              h('select', {
+                value: protocolVersion,
+                onChange: (e) => setProtocolVersion(e.target.value),
+                title: T.protoTitle,
+                'aria-label': T.protoTitle,
+                style: protoSelectStyle
+              },
+                h('option', { value: 'v1.5' }, T.protoV15),
+                h('option', { value: 'v1.6' }, T.protoV16)
+              ),
+              h('button', {
+                onClick: () => setShowProtocol(!showProtocol),
+                style: { background: 'none', border: 'none', color: 'var(--dsw-alias-label-secondary, #a1a1aa)', cursor: 'pointer', fontSize: 12, padding: 0, fontFamily: 'inherit' }
+              }, (showProtocol ? T.protocolCollapse : T.protocolExpand) + ' ' + (protocolVersion === 'v1.6' && protocol.v16 ? 'v1.6' : 'v1.5'))
             ),
-            h('button', {
-              onClick: () => setShowProtocol(!showProtocol),
-              style: { background: 'none', border: 'none', color: 'var(--dsw-alias-label-secondary, #a1a1aa)', cursor: 'pointer', fontSize: 12, padding: 0, fontFamily: 'inherit' }
-            }, (showProtocol ? T.protocolCollapse : T.protocolExpand) + ' ' + (protocolVersion === 'v1.6' && protocol.v16 ? 'v1.6' : 'v1.5')),
-            showProtocol && h('div', { style: { ...preStyle, marginTop: 4, maxHeight: 160, fontSize: 12 } },
+            showProtocol && h('div', { style: { ...preStyle, marginTop: 0, maxHeight: 160, fontSize: 12, width: '100%', boxSizing: 'border-box' } },
               (() => {
                 const active = (locale === 'en' && protocol.en) ? protocol.en : protocol
                 const pick = protocolVersion === 'v1.6' && active.protocolV16 ? active.protocolV16 : active.protocol
