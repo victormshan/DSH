@@ -120,10 +120,18 @@ window.__ModuleLoader__.load({
       }
 
     const tabBtnStyle = {
-      flex: 1, padding: '5px 0', borderRadius: 8, border: '1px solid var(--dsw-alias-border-l1, rgba(0,0,0,.15))',
-      background: 'transparent', color: 'var(--dsw-alias-label-secondary, #a1a1aa)', cursor: 'pointer', fontSize: 12
+      background: 'transparent', border: 'none', cursor: 'pointer',
+      padding: '4px 2px', marginRight: 16, fontSize: 13,
+      color: 'var(--dsw-alias-label-secondary, #a1a1aa)',
+      borderBottom: '2px solid transparent',
+      fontFamily: 'inherit', whiteSpace: 'nowrap', transition: 'color .15s ease, border-color .15s ease'
     }
-    const tabActiveStyle = { ...tabBtnStyle, background: 'var(--dsw-alias-brand-primary, #3b82f6)', color: 'var(--dsw-alias-label-primary-foreground, #fff)', borderColor: 'var(--dsw-alias-brand-primary, #3b82f6)' }
+    const tabActiveStyle = {
+      ...tabBtnStyle,
+      color: 'var(--dsw-alias-brand-primary, #3b82f6)',
+      borderBottom: '2px solid var(--dsw-alias-brand-primary, #3b82f6)',
+      fontWeight: 600
+    }
 
     // ---- footer 按钮 ----
     const FooterButton = (props) => {
@@ -872,7 +880,7 @@ window.__ModuleLoader__.load({
         ),
         // v0.5: tab bar (experiment form | three-party trace page)
         !collapsed &&
-        h('div', { style: { display: 'flex', gap: 6, marginBottom: 8 } },
+        h('div', { style: { display: 'flex', gap: 0, marginBottom: 8, borderBottom: '1px solid var(--dsw-alias-border-l1, rgba(0,0,0,.08))' } },
           h('button', { onClick: () => setTab('main'), style: tab === 'main' ? tabActiveStyle : tabBtnStyle }, '协作对话'),
           h('button', { onClick: () => setTab('trace'), style: tab === 'trace' ? tabActiveStyle : tabBtnStyle }, '轨迹')
         ),
