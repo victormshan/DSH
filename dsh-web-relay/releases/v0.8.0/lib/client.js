@@ -653,6 +653,16 @@ window.__ModuleLoader__.load({
           } catch (e) { /* silent refresh failure */ }
         }
 
+        // v1.3: clear the loaded Step List state and the load input (start fresh).
+        const clearStepState = () => {
+          setStepLoadId('')
+          setSteps(null)
+          setStepState(null)
+          setExprId('')
+          setStepComment('')
+          setStepBusy(false)
+        }
+
         // v1.3: poll the authoritative Step List state while the panel is open so
         // external status changes (auto-review, other panels, server updates) are
         // reflected without reopening the panel.
@@ -1030,7 +1040,8 @@ window.__ModuleLoader__.load({
                 }),
                 h('button', { onClick: () => loadStepState(stepLoadId), disabled: stepBusy, className: 'dwr-ghost', style: { ...btnGhostStyle, padding: '4px 10px', fontSize: 12 } }, '载入')
                   ,
-                  h('button', { onClick: () => refreshStepState(), disabled: stepBusy || !exprId, className: 'dwr-ghost', style: { ...btnGhostStyle, padding: '4px 10px', fontSize: 12 } }, '刷新')
+                  h('button', { onClick: () => refreshStepState(), disabled: stepBusy || !exprId, className: 'dwr-ghost', style: { ...btnGhostStyle, padding: '4px 10px', fontSize: 12 } }, '刷新'),
+                  h('button', { onClick: clearStepState, disabled: stepBusy, className: 'dwr-ghost', style: { ...btnGhostStyle, padding: '4px 10px', fontSize: 12 } }, '清空')
               )
             ),
 
