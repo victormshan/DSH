@@ -194,7 +194,20 @@ window.__ModuleLoader__.load({
           langTitle: 'Switch to English / 切换到 English'
         },
         status: { pending: '待开始', executing: '执行中', review: '待审核', approved: '已通过', rejected: '已打回' },
-        phase: { planning: '架构探讨', executing: '执行' }
+        phase: { planning: '架构探讨', executing: '执行' },
+        parsing: '解析中…',
+        parsePreview: '解析并预览',
+        saving: '保存中…',
+        saveOnly: '仅保存记录',
+        manualNeedPaste: 'manual 模式需要粘贴回答',
+        expandRecord: '查看协作记录',
+        collapseRecord: '收起协作记录',
+        userTaskLabel: '用户任务',
+        processOverviewLabel: '过程概述',
+        resultSummaryLabel: '成果摘要',
+        noUserTask: '(无用户任务)',
+        noResultSummary: '(暂无成果摘要)',
+        summaryCounts: (m, e, a, r) => `主 agent ${m} 条 · 外部AI ${e} 条 · 通过 ${a} 次 · 打回 ${r} 次`
       },
       en: {
         title: 'dsh-web-relay · External AI Collaboration',
@@ -268,14 +281,27 @@ window.__ModuleLoader__.load({
           langTitle: 'Switch to Chinese / 切换到中文'
         },
         status: { pending: 'Pending', executing: 'Executing', review: 'Review', approved: 'Approved', rejected: 'Rejected' },
-        phase: { planning: 'Planning', executing: 'Executing' }
+        phase: { planning: 'Planning', executing: 'Executing' },
+        parsing: 'Parsing…',
+        parsePreview: 'Parse & Preview',
+        saving: 'Saving…',
+        saveOnly: 'Save record only',
+        manualNeedPaste: 'Manual mode requires a pasted answer',
+        expandRecord: 'View record',
+        collapseRecord: 'Collapse record',
+        userTaskLabel: 'User Task',
+        processOverviewLabel: 'Overview',
+        resultSummaryLabel: 'Summary',
+        noUserTask: '(No user task)',
+        noResultSummary: '(No summary yet)',
+        summaryCounts: (m, e, a, r) => `main agent ${m} · external AI ${e} · approved ${a} · rejected ${r}`
       }
     }
 
     // ---- v0.5: web-relay three-party roles (用户 / 主 agent / 外部AI) ----
     const ROLE_LABEL = { user: '用户', mainagent: '主 agent', external: '外部AI' }
     const ROLE_COLOR = { user: '#3b82f6', mainagent: '#f59e0b', external: '#a855f7' }
-      const summarizeTrace = (t) => {
+      const summarizeTrace = (t, T) => {
         const entries = t && Array.isArray(t.entries) ? t.entries : []
         const userEntry = entries.find((e) => e.role === 'user')
         const mainAgentEntries = entries.filter((e) => e.role === 'mainagent')
@@ -283,10 +309,11 @@ window.__ModuleLoader__.load({
         const approvedCount = entries.filter((e) => /通过|approved/i.test(e.text || '')).length
         const rejectedCount = entries.filter((e) => /打回|rejected/i.test(e.text || '')).length
         const last = entries[entries.length - 1]
+        const d = T || localeDict.zh
         return {
-          userTask: (userEntry && userEntry.text ? userEntry.text : '(无用户任务)').replace(/\s+/g, ' ').slice(0, 120),
-          overview: `主 agent ${mainAgentEntries.length} 条 · 外部AI ${externalEntries.length} 条 · 通过 ${approvedCount} 次 · 打回 ${rejectedCount} 次`,
-          result: (last && last.text ? last.text : '(暂无成果摘要)').replace(/\s+/g, ' ').slice(0, 200)
+          userTask: (userEntry && userEntry.text ? userEntry.text : d.noUserTask).replace(/\s+/g, ' ').slice(0, 120),
+          overview: d.summaryCounts(mainAgentEntries.length, externalEntries.length, approvedCount, rejectedCount),
+          result: (last && last.text ? last.text : d.noResultSummary).replace(/\s+/g, ' ').slice(0, 200)
         }
       }
 
@@ -604,7 +631,7 @@ window.__ModuleLoader__.load({
 
       // manual: submit → parse → preview (or plain save when no instructions)
       const submitManual = async () => {
-        if (!pasted.trim()) { setError('manual 模式需要粘贴回答'); return }
+        if (!pasted.trim()) { setError(T.manualNeedPaste); return }
         setError(''); setSending(true); setPhase('parsing'); setAnswer(''); setSavedPath('')
         try {
           const resp = await fetch('/dsh-web-relay/parse', {
@@ -1129,11 +1156,11 @@ window.__ModuleLoader__.load({
         )
       } else if (phase === 'input' || phase === 'parsing') {
         footer = h('button', { onClick: submitManual, disabled: sending || phase === 'parsing', style: { ...btnStyle, opacity: (sending || phase === 'parsing') ? 0.6 : 1 } },
-          (phase === 'parsing') ? '解析中…' : '解析并预览')
+          (phase === 'parsing') ? T.parsing : T.parsePreview)
       } else if (phase === 'preview') {
         footer = h('div', { style: { display: 'flex', gap: 8, alignItems: 'center', width: '100%' } },
           h('button', { onClick: () => execute([]), disabled: sending, className: 'dwr-ghost', className: 'dwr-ghost', style: { ...btnGhostStyle, opacity: sending ? 0.6 : 1 } },
-            sending ? '保存中…' : '仅保存记录'),
+            sending ? T.saving : T.saveOnly),
           h('button', {
             onClick: () => execute(checkedIndices),
             disabled: sending || checkedIndices.length === 0,
@@ -1475,16 +1502,16 @@ window.__ModuleLoader__.load({
                     h('button', {
                       onClick: () => expandRecord(t.id),
                       style: { background: 'none', border: 'none', color: '#93c5fd', cursor: 'pointer', fontSize: 12, whiteSpace: 'nowrap' }
-                    }, expandedTrace[t.id] ? '收起协作记录 ▲' : '查看协作记录 ▼')
+                    }, expandedTrace[t.id] ? T.collapseRecord + ' ▲' : T.expandRecord + ' ▼')
                   ),
                     !expandedTrace[t.id] && (() => {
-                      const s = summarizeTrace(t)
+                      const s = summarizeTrace(t, T)
                       return h('div', { style: { marginTop: 6, padding: 8, background: 'var(--dsw-alias-bg-layer-1, #101018)', border: '1px solid var(--dsw-alias-border-l1, #2a2a35)', borderRadius: 6 } },
-                        h('div', { style: { fontSize: 11, color: '#93c5fd', fontWeight: 600 } }, '用户任务'),
+                        h('div', { style: { fontSize: 11, color: '#93c5fd', fontWeight: 600 } }, T.userTaskLabel),
                         h('div', { style: { ...hintStyle, marginTop: 2 } }, s.userTask),
-                        h('div', { style: { fontSize: 11, color: '#f59e0b', fontWeight: 600, marginTop: 6 } }, '过程概述'),
+                        h('div', { style: { fontSize: 11, color: '#f59e0b', fontWeight: 600, marginTop: 6 } }, T.processOverviewLabel),
                         h('div', { style: { ...hintStyle, marginTop: 2 } }, s.overview),
-                        h('div', { style: { fontSize: 11, color: '#4ade80', fontWeight: 600, marginTop: 6 } }, '成果摘要'),
+                        h('div', { style: { fontSize: 11, color: '#4ade80', fontWeight: 600, marginTop: 6 } }, T.resultSummaryLabel),
                         h('div', { style: { ...hintStyle, marginTop: 2 } }, s.result)
                       )
                     })(),
