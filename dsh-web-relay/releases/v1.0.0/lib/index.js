@@ -836,18 +836,20 @@ export function apply(ctx) {
   }
 
   // ---------- record persistence ----------
-  async function saveRecord({ base, safePolicy, prompt, answer, channel, actions, results, selectedIndices, status, stamp, steps }) {
+  async function saveRecord({ base, safePolicy, prompt, answer, channel, actions, results, selectedIndices, status, stamp, steps, intent }) {
     const stampFinal = stamp || new Date().toISOString().replace(/[:.]/g, '-').replace('T', '_').slice(0, 19)
     const id = `expr-${stampFinal}`
     const relPath = `${EXPERIMENTS_DIR}/dsh-web-relay-${stampFinal}.md`
     const fileTarget = await fs.resolve(relPath, { cwd: base })
+    // v1.0.1: intent 支持传递（general | project），默认 general
+    const intentFinal = intent === 'project' ? 'project' : 'general'
       const stepSection = steps && steps.length > 0
         ? ['', '## 分步实施清单', '', JSON.stringify(steps, null, 2), '']
         : []
     const content = [
       '---',
       `id: ${id}`,
-      'intent: general',
+      `intent: ${intentFinal}`,
       `channel: ${channel}`,
       `status: ${status}`,
       `created: ${new Date().toISOString()}`,
@@ -889,9 +891,9 @@ export function apply(ctx) {
         const target = await stepStateTarget(base, exprId)
         const text = await fs.readText(target)
         const data = JSON.parse(text)
-        if (data && Array.isArray(data.steps)) return { exprId, currentStep: data.currentStep || null, status: data.status || 'open', phase: data.phase || (data.steps.length ? 'executing' : 'planning'), architectNotes: data.architectNotes || null, contextRequests: Array.isArray(data.contextRequests) ? data.contextRequests : [], steps: data.steps, updatedAt: data.updatedAt, autoReview: data.autoReview === true, stopReason: data.stopReason || null, stoppedAt: data.stoppedAt || null, finalized: data.finalized === true, finalizedAt: data.finalizedAt || null, finalSummary: data.finalSummary || null, protocolVersion: data.protocolVersion || 'v1.5' }
+        if (data && Array.isArray(data.steps)) return { exprId, currentStep: data.currentStep || null, status: data.status || 'open', phase: data.phase || (data.steps.length ? 'executing' : 'planning'), architectNotes: data.architectNotes || null, contextRequests: Array.isArray(data.contextRequests) ? data.contextRequests : [], steps: data.steps, updatedAt: data.updatedAt, autoReview: data.autoReview === true, stopReason: data.stopReason || null, stoppedAt: data.stoppedAt || null, finalized: data.finalized === true, finalizedAt: data.finalizedAt || null, finalSummary: data.finalSummary || null, protocolVersion: data.protocolVersion || 'v1.5', activeSteps: Array.isArray(data.activeSteps) ? data.activeSteps : [] }
       } catch (err) { /* no state yet */ }
-      return { exprId, steps: [], currentStep: null, status: 'open', phase: 'planning', architectNotes: null, contextRequests: [], autoReview: false, stopReason: null, stoppedAt: null, finalized: false, finalizedAt: null, finalSummary: null, protocolVersion: 'v1.5' }
+      return { exprId, steps: [], currentStep: null, status: 'open', phase: 'planning', architectNotes: null, contextRequests: [], autoReview: false, stopReason: null, stoppedAt: null, finalized: false, finalizedAt: null, finalSummary: null, protocolVersion: 'v1.5', activeSteps: [] }
     }
 
     async function writeStepState(base, exprId, state, safePolicy) {
@@ -899,6 +901,7 @@ export function apply(ctx) {
       const payload = {
         exprId,
         currentStep: state.currentStep || null,
+        activeSteps: Array.isArray(state.activeSteps) ? state.activeSteps : [],
         status: state.status || 'open',
         phase: state.phase || (state.steps && state.steps.length ? 'executing' : 'planning'),
           architectNotes: state.architectNotes || null,
@@ -965,24 +968,36 @@ export function apply(ctx) {
     const target = await fs.resolve(`${TRACES_DIR}/${exprId}.md`, { cwd: base })
     try {
       const text = await fs.readText(target)
+      // v1.0.1: 解析 frontmatter 的 created（保留初始创建时间）
+      let created = null
+      const fmMatch = text.match(/^---\n([\s\S]*?)\n---/)
+      if (fmMatch) {
+        for (const line of fmMatch[1].split('\n')) {
+          const kv = line.match(/^created:\s*(.+)$/)
+          if (kv) created = kv[1].trim()
+        }
+      }
       const body = text.replace(/^---[\s\S]*?---\n/, '')
-      return { target, entries: traceEntriesFrom(body) }
+      return { target, entries: traceEntriesFrom(body), created }
     } catch (err) {
-      return { target, entries: [] }
+      return { target, entries: [], created: null }
     }
   }
 
   const traceEntry = (role, text) => ({ role, at: new Date().toISOString(), text: String(text || '') })
 
   async function appendTrace({ base, safePolicy, exprId, entries }) {
-    const { target, entries: existing } = await loadTrace(base, exprId)
-    const merged = existing.concat(entries)
+    const { target, entries: existing, created } = await loadTrace(base, exprId)
+    // v1.0.1: 幂等去重——相同 role + text 的条目不重复追加（重复 POST 安全）
+    const seen = new Set(existing.map((e) => `${e.role}\u0000${e.text}`))
+    const fresh = (entries || []).filter((e) => !seen.has(`${e.role}\u0000${e.text}`))
+    const merged = existing.concat(fresh)
     const content = [
       '---',
       `id: ${exprId}`,
       'kind: trace',
       'status: open',
-      `created: ${new Date().toISOString()}`,
+      `created: ${created || new Date().toISOString()}`,   // v1.0.1: 保留初始创建时间，仅首次写入 now
       '---',
       '',
       ...merged.map((e) => [`## [${ROLE_LABEL[e.role] || e.role}] ${e.at}`, '', e.text || '(空)', ''].join('\n'))
@@ -1033,7 +1048,7 @@ export function apply(ctx) {
       ok: true,
       geminiConfigured: Boolean(GEMINI_KEY),
       model: GEMINI_MODEL,
-      version: '0.8.0',
+      version: '1.0.0',
       shellAvailable: Boolean(shell),
       apiProxyAvailable: Boolean(apiProxy),
       uptime: Math.round(process.uptime()),
@@ -1091,7 +1106,7 @@ export function apply(ctx) {
       const safePolicy = safePolicyFor(base)
       const { id, relPath, fileTarget } = await saveRecord({
         base, safePolicy, prompt, answer, channel: provider === 'gemini-free' ? 'gemini-free' : 'manual',
-        actions: [], results: [], selectedIndices: [], status: 'pending'
+        actions: [], results: [], selectedIndices: [], status: 'pending', intent: payload && payload.intent
       })
       // v0.5: seed the three-party trace (用户 prompt → 外部AI answer).
       await appendTrace({ base, safePolicy, exprId: id, entries: [
@@ -1446,7 +1461,8 @@ export function apply(ctx) {
         status,
         stamp
           ,
-          steps
+          steps,
+          intent: payload && payload.intent
       })
 
         // v1.3: persist Step List state so the panel and main agent share progress.
@@ -1658,7 +1674,9 @@ export function apply(ctx) {
         let traceText = ''
         if (action === 'start') {
           step.status = 'executing'
-          state.currentStep = step.id
+          state.currentStep = step.id   // v1.0.1: 最近激活步骤（v1.6 并行时 activeSteps 为完整集合）
+          state.activeSteps = state.activeSteps || []
+          if (!state.activeSteps.some((x) => String(x) === String(step.id))) state.activeSteps.push(String(step.id))
           traceText = `开始执行 Step ${step.id}：${step.title}`
         } else if (action === 'complete') {
           step.status = 'review'
@@ -1667,10 +1685,12 @@ export function apply(ctx) {
         } else if (action === 'approve') {
           step.status = 'approved'
           step.reviewedBy = 'manual'   // v1.5：手动审核路径
+          state.activeSteps = (state.activeSteps || []).filter((x) => String(x) !== String(step.id))
           traceText = `用户手动审核通过 Step ${step.id}：${step.title}\n${comment}`
         } else if (action === 'reject') {
           step.status = 'rejected'
           step.reviewedBy = 'manual'   // v1.5：手动审核路径
+          state.activeSteps = (state.activeSteps || []).filter((x) => String(x) !== String(step.id))
           traceText = `用户手动打回 Step ${step.id}：${step.title}\n${comment}`
         } else if (action === 'reopen') {
           step.status = 'pending'
@@ -1854,6 +1874,8 @@ export function apply(ctx) {
 
         // v1.5 审核来源
         step.reviewedBy = reviewer
+        // v1.0.1: 审核（通过/打回）后从 activeSteps 移除该步（v1.6 并行集合同步）
+        state.activeSteps = (state.activeSteps || []).filter((x) => String(x) !== String(step.id))
         if (state.steps.every((s) => s.status === 'approved')) state.status = 'done'
 
         step.notes = step.notes || []
@@ -1900,7 +1922,44 @@ export function apply(ctx) {
             }
             await appendTrace({ base, safePolicy, exprId, entries: [traceEntry('mainagent', handoffText)] }).catch(() => {})
           } else {
-            // v1.5 线性唤醒（或 v1.6 就绪为 0）：找下一个 pending step 或 done 收口
+            // v1.6：就绪为 0 但任务未完成 → 输出等待清单（依赖未满足的步骤），不误导为线性下一步
+            if (updated.protocolVersion === 'v1.6') {
+              const notDone = updated.steps.filter((s) => s.status !== 'approved' && s.status !== 'done')
+              if (notDone.length > 0) {
+                const waitLines = notDone.map((s) => {
+                  const unmet = blockedWaitingFor(s, updated)
+                  return `🔒 Step ${s.id} ${s.title}（等待：${unmet.length ? '依赖 ' + unmet.join(', ') : '前置审核'}）`
+                })
+                handoffText = [
+                  '【主 agent 请协助】dsh-web-relay 自动审核已通过，但暂无就绪步骤（依赖未满足）',
+                  '',
+                  `任务: ${exprId}`,
+                  `已通过 Step: ${step.id} ${step.title}`,
+                  `审核来源: ${reviewerLabel}`,
+                  '',
+                  '当前等待中：',
+                  ...waitLines,
+                  '',
+                  '无需执行新步骤，前置依赖通过后会自动唤醒。'
+                ].join('\n')
+                if (sessionId) {
+                  wake = await wakeMainAgent({ sessionId, handoffText })
+                }
+                await appendTrace({ base, safePolicy, exprId, entries: [traceEntry('mainagent', handoffText)] }).catch(() => {})
+                nextStep = null
+                return json(res, 200, {
+                  ok: true,
+                  stepState: updated,
+                  step: updated.steps.find((s) => String(s.id) === String(step.id)),
+                  reviewedBy: reviewer,
+                  reviewerLabel,
+                  waitingFor: notDone.map((s) => s.id),
+                  wake,
+                  handoffText
+                })
+              }
+            }
+            // v1.5 线性唤醒（或 v1.6 就绪为 0 且任务完成）：找下一个 pending step 或 done 收口
             nextStep = updated.steps.slice(idx + 1).find((s) => s.status === 'pending') || null
             if (nextStep) {
               handoffText = [
