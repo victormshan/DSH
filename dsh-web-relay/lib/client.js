@@ -204,6 +204,7 @@ window.__ModuleLoader__.load({
         reviewerExternal: '外部AI',
         reviewerDialog: '对话模型',
         reviewerManual: '手动',
+        roleLabel: { user: '用户', mainagent: '主 agent', external: '外部AI' },
         parsing: '解析中…',
         parsePreview: '解析并预览',
         saving: '保存中…',
@@ -303,6 +304,7 @@ window.__ModuleLoader__.load({
         reviewerExternal: 'External AI',
         reviewerDialog: 'Dialog',
         reviewerManual: 'Manual',
+        roleLabel: { user: 'User', mainagent: 'Main agent', external: 'External AI' },
         parsing: 'Parsing…',
         parsePreview: 'Parse & Preview',
         saving: 'Saving…',
@@ -328,8 +330,7 @@ window.__ModuleLoader__.load({
       }
     }
 
-    // ---- v0.5: web-relay three-party roles (用户 / 主 agent / 外部AI) ----
-    const ROLE_LABEL = { user: '用户', mainagent: '主 agent', external: '外部AI' }
+    // ---- v0.5: web-relay three-party roles（显示标签随界面语言，见 localeDict.roleLabel） ----
     const ROLE_COLOR = { user: '#3b82f6', mainagent: '#f59e0b', external: '#a855f7' }
       const summarizeTrace = (t, T) => {
         const entries = t && Array.isArray(t.entries) ? t.entries : []
@@ -632,7 +633,7 @@ window.__ModuleLoader__.load({
             for (const t of sortedTraces) {
               lines.push('### ' + t.id)
               for (const e of (t.entries || [])) {
-                lines.push((ROLE_LABEL[e.role] || e.role) + ': ' + String(e.text || '').replace(/\s+/g, ' ').slice(0, 300))
+                lines.push((T.roleLabel[e.role] || e.role) + ': ' + String(e.text || '').replace(/\s+/g, ' ').slice(0, 300))
               }
             }
           }
@@ -1619,7 +1620,7 @@ window.__ModuleLoader__.load({
                     })(),
                   !expandedTrace[t.id] ? null : (t.entries || []).map((e, i) => h('div', { key: i, style: { marginTop: 6, borderLeft: '2px solid ' + (ROLE_COLOR[e.role] || '#52525b'), paddingLeft: 8 } },
                     h('div', { style: { fontSize: 11, color: ROLE_COLOR[e.role] || '#a1a1aa' } },
-                      (ROLE_LABEL[e.role] || e.role) + ' · ' + String(e.at || '').replace('T', ' ').replace(/\.\d+Z$/, 'Z')),
+                      (T.roleLabel[e.role] || e.role) + ' · ' + String(e.at || '').replace('T', ' ').replace(/\.\d+Z$/, 'Z')),
                     h('div', { style: { ...preStyle, marginTop: 2, maxHeight: 140, fontSize: 12 } }, e.text || '(空)')
                   )),
                   expandedTrace[t.id] && traceRecord[t.id] && h('div', { style: { ...preStyle, marginTop: 6, maxHeight: 220, fontSize: 12 } }, traceRecord[t.id])
