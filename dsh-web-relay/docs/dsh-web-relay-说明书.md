@@ -1,6 +1,6 @@
 # dsh-web-relay 说明书
 
-> 适用版本：dsh-web-relay 0.7.0  
+> 适用版本：dsh-web-relay 0.8.0  
 > 协议版本：v1.3  
 > 文档性质：基于当前实际源码与试验记录整理
 
@@ -179,7 +179,7 @@ v1.4 在 v1.3 Step List 执行之前引入可选的 planning 阶段。
 
 ---
 
-## 4. 实际实现（0.7.0）
+## 4. 实际实现（0.8.0）
 
 > 以下内容来自当前安装源码。
 
@@ -193,7 +193,7 @@ C:\Users\Administrator\.dsh\profiles\web\node_modules\dsh-web-relay
 
 | 文件 | 作用 |
 |---|---|
-| `package.json` | 插件元数据，version 0.7.0 |
+| `package.json` | 插件元数据，version 0.8.0 |
 | `lib/index.js` | 后端：协议常量、路由、Step List 状态机、trace 读写 |
 | `lib/client.js` | 前端：面板、Step List UI、审核操作 |
 | `cordis.patch.yml` | 插件装配声明 |
@@ -246,7 +246,7 @@ web-relay/traces/expr-<ts>.md
 
 ## 5. 使用方法
 
-> 本章基于 dsh-web-relay 0.7.0 实际功能编写。
+> 本章基于 dsh-web-relay 0.8.0 实际功能编写。
 
 ### 5.0 环境配置
 
@@ -340,7 +340,7 @@ dsh web
 
 ## 6. 开发者扩展
 
-> 本章属于开发者扩展指南，基于当前 0.7.0 实际实现；协议规范仍以第 3 章 v1.3 为准。
+> 本章属于开发者扩展指南，基于当前 0.8.0 实际实现；协议规范仍以第 3 章 v1.3 为准。
 
 ### 6.1 扩展总览
 
@@ -457,7 +457,7 @@ web-relay/traces/expr-<ts>.md
 
 ### 6.7 自动审核
 
-当前 v0.7.0 已提供自动审核接口：
+当前 v0.8.0 已提供自动审核接口：
 
 ```text
 POST /dsh-web-relay/steps/auto-review
@@ -504,7 +504,7 @@ body { workspacePath, exprId, stepId?, sessionId? }
 
 ## 9. 结论
 
-dsh-web-relay 0.7.0 已实现：
+dsh-web-relay 0.8.0 已实现：
 
 - v1.3 协议
 - Step List 状态持久化

@@ -5,9 +5,9 @@
 > **权威来源**：本目录（`victormshan/DSH` 仓库内的 `dsh-web-relay/`）是唯一维护的源码位置。
 > 修改、提交、发版都在此进行；`deploy.ps1` 负责部署到 dsh profile 的安装目录。
 
-- **当前版本**：0.7.0（协议 v1.4：Step List + 外部 AI 审核 + 自动审核 + Planning & Architect 模式）
+- **当前版本**：0.8.0（协议 v1.4 + 平铺布局：与 DSH 页面左右平铺、可拖动分割条、折叠 rail、tokens 跟随主题）
 - **说明文档**：[docs/dsh-web-relay-说明书.md](docs/dsh-web-relay-说明书.md)
-- **版本快照**：[releases/v0.7.0/](releases/v0.7.0/)（全量文件快照，不依赖增量 Edit）
+- **版本快照**：[releases/v0.8.0/](releases/v0.8.0/)（全量文件快照，不依赖增量 Edit）｜[v0.7.0/](releases/v0.7.0/)（上一里程碑）
 - **部署**：运行 `deploy.ps1`（含版本断言检查）或手动复制 `lib/`、`package.json`、`cordis.patch.yml` 到 `C:\Users\Administrator\.dsh\profiles\web\node_modules\dsh-web-relay\`
 
 ---
@@ -16,12 +16,12 @@
 
 ```
 dsh-web-relay/
-├── lib/                    # 插件源码（v0.7.0 权威版本）
-│   ├── index.js            # Host half（1550 行：协议 v1.4、Step List、auto-review、Planning）
-│   └── client.js           # Browser bundle（1080 行：Step List UI、planning 开关、自动审核按钮）
-├── package.json            # 插件元数据（version 0.7.0）
+├── lib/                    # 插件源码（v0.8.0 权威版本）
+│   ├── index.js            # Host half（1549 行：协议 v1.4、Step List、auto-review、Planning）
+│   └── client.js           # Browser bundle（1157 行：平铺布局 + Step List UI + planning 开关 + 自动审核按钮）
+├── package.json            # 插件元数据（version 0.8.0）
 ├── cordis.patch.yml        # profile 挂载补丁
-├── docs/                   # 说明书（适用版本 0.7.0）
+├── docs/                   # 说明书（适用版本 0.8.0）
 ├── releases/               # 里程碑全量快照
 ├── deploy.ps1              # 部署脚本（版本断言 + 复制到安装目录）
 ├── .gitattributes          # LF 换行强制
@@ -71,6 +71,7 @@ git tag v0.7.0
 
 | 版本 | 协议 | 内容 |
 |---|---|---|
+| 0.8.0 | v1.4 | 平铺布局：与 DSH 页面左右平铺 + 可拖动分割条 + 折叠 rail + DSH tokens（布局方案落地） |
 | 0.7.0 | v1.4 | Step List + 外部 AI 审核 + 自动审核 + Planning & Architect |
 | 0.6.0 | v1.3 | Step List 执行与外部 AI 审核回路 |
 | 0.5.0 | v1.2 | 记录域与 side-window 解耦，experiments/traces 独立落盘 |
