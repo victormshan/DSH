@@ -58,9 +58,10 @@ window.__ModuleLoader__.load({
       'html[data-dwr-docked],html[data-dwr-docked] body{overflow-x:hidden}' +
       'html[data-dwr-docked] body{padding-right:calc(var(--dwr-panel-width) + var(--dwr-splitter-width)) !important;box-sizing:border-box}' +
       '.dwr-splitter{position:fixed;top:60px;bottom:0;width:5px;cursor:col-resize;z-index:2147483001;touch-action:none;user-select:none}' +
-      '.dwr-splitter::after{content:"";position:absolute;left:1px;top:0;bottom:0;width:2px;background:var(--dsw-alias-border-l1,rgba(0,0,0,.12));transition:background .15s ease}' +
+      '.dwr-splitter::after{content:"";position:absolute;left:1px;top:50%;transform:translateY(-50%);width:3px;height:24px;border-radius:2px;background:var(--dsw-alias-border-l1,rgba(0,0,0,.15));transition:background .15s ease}' +
       '.dwr-splitter:hover::after,.dwr-splitter.dwr-dragging::after{background:var(--dsw-alias-brand-primary,#3b82f6)}' +
-      '.dwr-rail{position:fixed;top:60px;right:0;bottom:0;width:28px;display:flex;align-items:center;justify-content:center;background:var(--dsw-alias-bg-overlay,#18181b);border-left:1px solid var(--dsw-alias-border-l1,rgba(0,0,0,.12));cursor:pointer;z-index:2147483000}'
+      '.dwr-rail{position:fixed;top:60px;right:0;bottom:0;width:28px;display:flex;align-items:center;justify-content:center;background:var(--dsw-alias-bg-overlay,#18181b);border-left:1px solid var(--dsw-alias-border-l1,rgba(0,0,0,.12));cursor:pointer;z-index:2147483000}' +
+      '.dwr-ghost:hover{background:var(--dsw-alias-interactive-bg-hover, rgba(0,0,0,.06))}'
 
     const panelStyle = {
       position: 'fixed', top: 60, right: 0, bottom: 0, zIndex: 2147483000,
@@ -77,7 +78,7 @@ window.__ModuleLoader__.load({
     const panelFootStyle = { flex: '0 0 auto', padding: '10px 12px', borderTop: '1px solid var(--dsw-alias-border-l1, rgba(0,0,0,.08))', display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }
     const inputStyle = {
       width: '100%', boxSizing: 'border-box', margin: '6px 0',
-      background: 'var(--dsw-alias-bg-base, #18181b)', color: 'var(--dsw-alias-label-primary, #e4e4e7)',
+      background: 'var(--dsw-alias-bg-layer-2, #18181b)', color: 'var(--dsw-alias-label-primary, #e4e4e7)',
       border: '1px solid var(--dsw-alias-border-l1, rgba(0,0,0,.15))',
       borderRadius: 8, padding: '6px 8px', fontFamily: 'inherit', fontSize: 13, resize: 'vertical'
     }
@@ -85,7 +86,17 @@ window.__ModuleLoader__.load({
       padding: '6px 14px', borderRadius: 8, border: 'none', cursor: 'pointer',
       background: 'var(--dsw-alias-brand-primary, #3b82f6)', color: 'var(--dsw-alias-label-primary-foreground, #fff)', fontSize: 13
     }
-    const btnGhostStyle = { ...btnStyle, background: 'var(--dsw-alias-bg-layer-2, #52525b)', color: 'var(--dsw-alias-label-primary, #e4e4e7)' }
+    // 幽灵/次级按钮：透明背景 + 细边框，hover 浅色（DOCK_CSS .dwr-ghost:hover）
+    const btnGhostStyle = {
+      ...btnStyle,
+      background: 'transparent',
+      border: '1px solid var(--dsw-alias-border-l2, rgba(0,0,0,.18))',
+      color: 'var(--dsw-alias-label-primary, #e4e4e7)'
+    }
+    // 语义色幽灵（状态性操作保留可读的语义色文字，收敛大面积撞色）
+    const ghostGreen = { ...btnGhostStyle, color: 'var(--dsw-alias-state-success-primary, #4ade80)', borderColor: 'var(--dsw-alias-state-success-primary, rgba(74,222,128,.45))' }
+    const ghostRed = { ...btnGhostStyle, color: 'var(--dsw-alias-state-error-primary, #f87171)', borderColor: 'var(--dsw-alias-state-error-primary, rgba(248,113,113,.45))' }
+    const ghostPurple = { ...btnGhostStyle, color: '#a78bfa', borderColor: 'rgba(167,139,250,.45)' }
     const btnWarnStyle = { ...btnStyle, background: 'var(--dsw-alias-state-error-primary, #dc2626)', color: '#fff' }
     const hintStyle = { color: 'var(--dsw-alias-label-secondary, #a1a1aa)', fontSize: 12, margin: '4px 0' }
     const warnStyle = { color: 'var(--dsw-alias-state-warn-primary, #fbbf24)', fontSize: 12, margin: '4px 0' }
@@ -815,12 +826,12 @@ window.__ModuleLoader__.load({
           exprId && !stopped && h('button', {
             onClick: stopExperiment,
             disabled: sending,
-            style: { ...btnWarnStyle, opacity: sending ? 0.6 : 1 }
+            className: 'dwr-ghost', style: { ...ghostRed, opacity: sending ? 0.6 : 1 }
           }, '停止'),
           exprId && stopped && h('button', {
             onClick: resumeExperiment,
             disabled: sending,
-            style: { ...btnGhostStyle, opacity: sending ? 0.6 : 1 }
+            className: 'dwr-ghost', style: { ...btnGhostStyle, opacity: sending ? 0.6 : 1 }
           }, '恢复')
         )
       } else if (phase === 'input' || phase === 'parsing') {
@@ -828,7 +839,7 @@ window.__ModuleLoader__.load({
           (phase === 'parsing') ? '解析中…' : '解析并预览')
       } else if (phase === 'preview') {
         footer = h('div', { style: { display: 'flex', gap: 8, alignItems: 'center', width: '100%' } },
-          h('button', { onClick: () => execute([]), disabled: sending, style: { ...btnGhostStyle, opacity: sending ? 0.6 : 1 } },
+          h('button', { onClick: () => execute([]), disabled: sending, className: 'dwr-ghost', className: 'dwr-ghost', style: { ...btnGhostStyle, opacity: sending ? 0.6 : 1 } },
             sending ? '保存中…' : '仅保存记录'),
           h('button', {
             onClick: () => execute(checkedIndices),
@@ -863,11 +874,11 @@ window.__ModuleLoader__.load({
         h('div', {
           style: {
             display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-            padding: '10px 12px', borderBottom: '1px solid var(--dsw-alias-border-l1, rgba(0,0,0,.08))',
+            padding: '12px 16px', borderBottom: '1px solid var(--dsw-alias-border-l1, rgba(0,0,0,.08))',
             cursor: 'default', userSelect: 'none'
           }
         },
-          h('strong', null, 'dsh-web-relay · 外部AI协作平台'),
+          h('strong', { style: { fontWeight: 600 } }, 'dsh-web-relay · 外部AI协作平台'),
           h('div', { style: { display: 'flex', gap: 4 } },
             h('button', {
               onClick: (e) => { stop(e); setCollapsed(true) },
@@ -917,8 +928,8 @@ window.__ModuleLoader__.load({
             rows: 2, style: inputStyle
           }),
           h('div', { style: { display: 'flex', gap: 8, alignItems: 'center', margin: '4px 0' } },
-            h('button', { onClick: packContext, style: { ...btnStyle, background: '#6d28d9' } }, '📦 打包上下文'),
-              h('button', { onClick: () => setArchitectMode(!architectMode), style: architectMode ? { ...btnStyle, background: '#7c3aed' } : btnGhostStyle }, architectMode ? '🧭 架构探讨开' : '🧭 架构探讨'),
+            h('button', { onClick: packContext, style: btnStyle }, '📦 打包上下文'),
+              h('button', { onClick: () => setArchitectMode(!architectMode), className: 'dwr-ghost', style: architectMode ? ghostPurple : btnGhostStyle }, architectMode ? '🧭 架构探讨开' : '🧭 架构探讨'),
             contextCopied && h('span', { style: { ...savedStyle, marginTop: 0 } }, '已复制，去网页 Ctrl+V'),
             !contextCopied && contextText && h('span', { style: hintStyle }, '剪贴板不可用，请手动复制预览区')
           ),
@@ -993,7 +1004,7 @@ window.__ModuleLoader__.load({
                     : '请复制 handoff 文本交给主 agent：'),
                   needsAgent.handoffText && h('button', {
                     onClick: () => copyHandoff(needsAgent.handoffText),
-                    style: { ...btnWarnStyle, padding: '4px 10px', fontSize: 12 }
+                    className: 'dwr-ghost', style: { ...ghostRed, padding: '4px 10px', fontSize: 12 }
                   }, '复制 handoff 文本')
                 ),
             needsAgent.handoffText && h('div', { style: { ...preStyle, marginTop: 6, maxHeight: 160 } }, needsAgent.handoffText)
@@ -1017,9 +1028,9 @@ window.__ModuleLoader__.load({
                   placeholder: '载入已有 expr id，如 expr-2026-08-23_14-34-09',
                   style: { ...inputStyle, margin: 0, flex: 1, fontSize: 12 }
                 }),
-                h('button', { onClick: () => loadStepState(stepLoadId), disabled: stepBusy, style: { ...btnGhostStyle, padding: '4px 10px', fontSize: 12 } }, '载入')
+                h('button', { onClick: () => loadStepState(stepLoadId), disabled: stepBusy, className: 'dwr-ghost', style: { ...btnGhostStyle, padding: '4px 10px', fontSize: 12 } }, '载入')
                   ,
-                  h('button', { onClick: () => refreshStepState(), disabled: stepBusy || !exprId, style: { ...btnGhostStyle, padding: '4px 10px', fontSize: 12 } }, '刷新')
+                  h('button', { onClick: () => refreshStepState(), disabled: stepBusy || !exprId, className: 'dwr-ghost', style: { ...btnGhostStyle, padding: '4px 10px', fontSize: 12 } }, '刷新')
               )
             ),
 
@@ -1028,8 +1039,8 @@ window.__ModuleLoader__.load({
               h('div', { style: { ...hintStyle, fontWeight: 600, color: '#93c5fd' } }, 'Step List · 逐步执行/外部 AI 审核'),
                 stepState && stepState.phase && h('span', { style: { fontSize: 11, color: stepState.phase === 'planning' ? '#f59e0b' : '#4ade80', marginLeft: 6 } }, '· 阶段: ' + stepState.phase),
                 stepState && stepState.autoReview && h('span', { style: { fontSize: 11, color: '#7c3aed', marginLeft: 6 } }, '· 自动审核模式开'),
-                  h('button', { onClick: toggleAutoReview, disabled: stepBusy, style: { ...btnGhostStyle, padding: '2px 8px', fontSize: 11, marginLeft: 6 } }, stepState && stepState.autoReview ? '关闭自动审核' : '开启自动审核'),
-                  stepState && stepState.phase === 'planning' && h('button', { onClick: () => setExperimentPhase('executing'), disabled: stepBusy, style: { ...btnGhostStyle, padding: '2px 8px', fontSize: 11, marginLeft: 6 } }, '进入执行阶段'),
+                  h('button', { onClick: toggleAutoReview, disabled: stepBusy, className: 'dwr-ghost', style: { ...btnGhostStyle, padding: '2px 8px', fontSize: 11, marginLeft: 6 } }, stepState && stepState.autoReview ? '关闭自动审核' : '开启自动审核'),
+                  stepState && stepState.phase === 'planning' && h('button', { onClick: () => setExperimentPhase('executing'), disabled: stepBusy, className: 'dwr-ghost', style: { ...btnGhostStyle, padding: '2px 8px', fontSize: 11, marginLeft: 6 } }, '进入执行阶段'),
                 h('div', { style: { display: 'flex', gap: 6, marginTop: 4, alignItems: 'center' } },
                   h('input', {
                     value: stepLoadId,
@@ -1037,7 +1048,7 @@ window.__ModuleLoader__.load({
                     placeholder: '载入已有 expr id，如 expr-2026-08-22_13-51-32',
                     style: { ...inputStyle, margin: 0, flex: 1, fontSize: 12 }
                   }),
-                  h('button', { onClick: () => loadStepState(stepLoadId), disabled: stepBusy, style: { ...btnGhostStyle, padding: '4px 10px', fontSize: 12 } }, '载入')
+                  h('button', { onClick: () => loadStepState(stepLoadId), disabled: stepBusy, className: 'dwr-ghost', style: { ...btnGhostStyle, padding: '4px 10px', fontSize: 12 } }, '载入')
                 ),
 
               steps.map((s) => h('div', { key: s.id, style: { marginTop: 6, padding: 6, background: 'var(--dsw-alias-bg-layer-1, #18181b)', border: '1px solid var(--dsw-alias-border-l1, #3f3f46)', borderRadius: 6 } },
@@ -1050,12 +1061,12 @@ window.__ModuleLoader__.load({
                 s.detail && h('div', { style: { ...hintStyle, marginTop: 2 } }, s.detail),
                 s.acceptance && h('div', { style: { ...hintStyle, marginTop: 2 } }, '验收：' + s.acceptance),
                 h('div', { style: { display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 4 } },
-                  h('button', { onClick: () => callStepUpdate(s.id, 'start'), disabled: stepBusy, style: { ...btnGhostStyle, padding: '2px 8px', fontSize: 11 } }, '开始'),
-                  h('button', { onClick: () => callStepUpdate(s.id, 'complete'), disabled: stepBusy, style: { ...btnGhostStyle, padding: '2px 8px', fontSize: 11 } }, '完成待审核'),
-                    h('button', { onClick: () => autoReviewStep(s.id), disabled: stepBusy, style: { ...btnGhostStyle, padding: '2px 8px', fontSize: 11, background: '#7c3aed' } }, '自动审核'),
-                  h('button', { onClick: () => callStepUpdate(s.id, 'approve'), disabled: stepBusy, style: { ...btnGhostStyle, padding: '2px 8px', fontSize: 11, background: '#15803d' } }, '外部通过'),
-                  h('button', { onClick: () => callStepUpdate(s.id, 'reject'), disabled: stepBusy, style: { ...btnWarnStyle, padding: '2px 8px', fontSize: 11 } }, '外部打回'),
-                  h('button', { onClick: () => callStepUpdate(s.id, 'reopen'), disabled: stepBusy, style: { ...btnGhostStyle, padding: '2px 8px', fontSize: 11 } }, '重开')
+                  h('button', { onClick: () => callStepUpdate(s.id, 'start'), disabled: stepBusy, className: 'dwr-ghost', style: { ...btnGhostStyle, padding: '2px 8px', fontSize: 11 } }, '开始'),
+                  h('button', { onClick: () => callStepUpdate(s.id, 'complete'), disabled: stepBusy, className: 'dwr-ghost', style: { ...btnGhostStyle, padding: '2px 8px', fontSize: 11 } }, '完成待审核'),
+                    h('button', { onClick: () => autoReviewStep(s.id), disabled: stepBusy, className: 'dwr-ghost', style: { ...ghostPurple, padding: '2px 8px', fontSize: 11 } }, '自动审核'),
+                  h('button', { onClick: () => callStepUpdate(s.id, 'approve'), disabled: stepBusy, className: 'dwr-ghost', style: { ...ghostGreen, padding: '2px 8px', fontSize: 11 } }, '外部通过'),
+                  h('button', { onClick: () => callStepUpdate(s.id, 'reject'), disabled: stepBusy, className: 'dwr-ghost', style: { ...ghostRed, padding: '2px 8px', fontSize: 11 } }, '外部打回'),
+                  h('button', { onClick: () => callStepUpdate(s.id, 'reopen'), disabled: stepBusy, className: 'dwr-ghost', style: { ...btnGhostStyle, padding: '2px 8px', fontSize: 11 } }, '重开')
                 )
               )),
               h('div', { style: { display: 'flex', gap: 6, marginTop: 6 } },
@@ -1097,12 +1108,13 @@ window.__ModuleLoader__.load({
             h('span', { style: hintStyle }, traces ? `${traces.length} 条` : ''),
               h('button', {
                 onClick: () => setTraceOrder(traceOrder === 'asc' ? 'desc' : 'asc'),
+                className: 'dwr-ghost',
                 style: { ...btnGhostStyle, padding: '3px 10px', fontSize: 12 }
               }, traceOrder === 'asc' ? '倒序（最新优先）' : '正序（时间线）'),
             h('button', {
               onClick: loadTraces,
               disabled: traceLoading,
-              style: { ...btnGhostStyle, padding: '3px 10px', fontSize: 12, marginLeft: 'auto', opacity: traceLoading ? 0.6 : 1 }
+              className: 'dwr-ghost', style: { ...btnGhostStyle, padding: '3px 10px', fontSize: 12, marginLeft: 'auto', opacity: traceLoading ? 0.6 : 1 }
             }, traceLoading ? '刷新中…' : '刷新')
           ),
           traceError && h('div', { style: warnStyle }, traceError),
@@ -1140,7 +1152,7 @@ window.__ModuleLoader__.load({
         !collapsed &&
         h('div', { style: panelFootStyle },
           tab === 'trace'
-            ? h('button', { onClick: loadTraces, disabled: traceLoading, style: { ...btnGhostStyle, opacity: traceLoading ? 0.6 : 1 } }, traceLoading ? '刷新中…' : '刷新轨迹')
+            ? h('button', { onClick: loadTraces, disabled: traceLoading, className: 'dwr-ghost', style: { ...btnGhostStyle, opacity: traceLoading ? 0.6 : 1 } }, traceLoading ? '刷新中…' : '刷新轨迹')
             : footer,
           h('span', { style: hintStyle }, 'Enter 提交 · Shift+Enter 换行')
         )
