@@ -216,6 +216,9 @@ window.__ModuleLoader__.load({
         const [stepBusy, setStepBusy] = useState(false)
         const [stepComment, setStepComment] = useState('')
         const [stepLoadId, setStepLoadId] = useState('')
+        // 用户主动「清空」后抑制「exprId 为空时自动载入最新任务」，防止清空被自动恢复覆盖；
+        // 面板重开时重置，恢复「打开面板自动载入最新任务」的原行为。
+        const suppressAutoLoadRef = useRef(false)
 
 
       const workspacePath = props.useWorkspaces ? props.useWorkspaces(recentWorkspacePath) : null
@@ -269,10 +272,11 @@ window.__ModuleLoader__.load({
           return () => { cancelled = true }
         }, [open, exprId, workspacePath])
 
-        // v1.3: when no exprId is known yet, auto-load the latest Step List state
-        // from the workspace context so reopening the panel shows persisted statuses.
+        // v1.3: when no exprId is known yet, auto-load the latest task's Step List
+        // state from the workspace context so reopening the panel shows persisted
+        // statuses. Suppressed right after an explicit 清空 (see suppressAutoLoadRef).
         useEffect(() => {
-          if (!open || exprId) return
+          if (!open || exprId || suppressAutoLoadRef.current) return
           let cancelled = false
           fetch('/dsh-web-relay/context?cwd=' + encodeURIComponent(workspacePath || ''))
             .then((r) => (r.ok ? r.json() : null))
@@ -287,6 +291,11 @@ window.__ModuleLoader__.load({
             .catch(() => {})
           return () => { cancelled = true }
         }, [open, exprId, workspacePath])
+
+        // 面板重开时重置抑制标记（保留「打开面板自动载入最新任务」）
+        useEffect(() => {
+          if (open) suppressAutoLoadRef.current = false
+        }, [open])
 
 
 
@@ -337,7 +346,7 @@ window.__ModuleLoader__.load({
             protocolText = protocol.text
           }
           if (!protocolText) {
-            protocolText = '三方主体（web-relay 语境）：用户 (the human) / 主 agent (the tool-using agent in the main harness session，负责执行与收口) / 外部AI (external web AI — Gemini/DeepSeek 网页版或 free API，负责提供方案与回答)。试验记录在 web-relay/experiments/，三方轨迹在 web-relay/traces/。复杂任务需输出 json:agent-action + 结构化 steps，主 agent 逐步执行并由外部 AI 审核。（/dsh-web-relay/protocol 不可用时的兜底文本）'
+            protocolText = '三方主体（web-relay 语境）：用户 (the human) / 主 agent (the tool-using agent in the main harness session，负责执行与收口) / 外部AI (external web AI — Gemini/DeepSeek 网页版或 free API，负责提供方案与回答)。任务记录在 web-relay/experiments/，三方轨迹在 web-relay/traces/。复杂任务需输出 json:agent-action + 结构化 steps，主 agent 逐步执行并由外部 AI 审核。（/dsh-web-relay/protocol 不可用时的兜底文本）'
           }
           const lines = [
             '【三方协作机制（web-relay 语境，每次回答都必须遵循）】',
@@ -348,7 +357,7 @@ window.__ModuleLoader__.load({
             '',
             '【项目上下文】',
             'workspace: ' + (workspacePath || '(未知)'),
-            '最近试验:'
+            '最近任务:'
           ]
           for (const r of (data.records || [])) {
             lines.push('  - ' + r.id + ' [' + r.intent + '/' + r.status + '] ' + r.snippet)
@@ -408,7 +417,7 @@ window.__ModuleLoader__.load({
             const resp = await fetch('/dsh-web-relay/record?cwd=' + encodeURIComponent(workspacePath || '') + '&id=' + encodeURIComponent(id))
             const data = await resp.json().catch(() => null)
             if (data && data.ok && data.record) setTraceRecord((r) => ({ ...r, [id]: data.record.text }))
-            else setTraceError('试验记录读取失败')
+            else setTraceError('任务记录读取失败')
           } catch (e) { setTraceError(String(e?.message || e)) }
         }
       }
@@ -653,14 +662,32 @@ window.__ModuleLoader__.load({
           } catch (e) { /* silent refresh failure */ }
         }
 
-        // v1.3: clear the loaded Step List state and the load input (start fresh).
+        // v1.3: clear the loaded Step List display and the load input (start fresh).
+        // 抑制「exprId 为空自动载入最新任务」，清空后不会自动恢复；点「刷新」才回到最新任务。
         const clearStepState = () => {
+          suppressAutoLoadRef.current = true
           setStepLoadId('')
           setSteps(null)
           setStepState(null)
           setExprId('')
           setStepComment('')
           setStepBusy(false)
+        }
+
+        // v1.3: load the LATEST task's Step List + current state from the workspace
+        // context（刷新 = 回到最新任务，无论当前显示的是哪个任务）。
+        const loadLatestTask = async () => {
+          try {
+            const resp = await fetch('/dsh-web-relay/context?cwd=' + encodeURIComponent(workspacePath || ''))
+            const data = await resp.json().catch(() => null)
+            if (!data || !data.ok || !Array.isArray(data.stepStates) || data.stepStates.length === 0) return
+            const latest = data.stepStates[0]
+            if (!latest || !Array.isArray(latest.steps)) return
+            setExprId(latest.exprId || '')
+            setSteps(latest.steps)
+            setStepState(latest)
+            setStepLoadId('')
+          } catch (e) { /* ignore */ }
         }
 
         // v1.3: poll the authoritative Step List state while the panel is open so
@@ -929,7 +956,7 @@ window.__ModuleLoader__.load({
           ),
           provider === 'manual'
             ? h('div', { style: hintStyle }, '粘贴网页 AI 的回答；含 ```json:agent-action 指令块时会先解析预览，逐条确认后才执行。')
-            : h('div', { style: hintStyle }, '试验 prompt 会作为问题发给 Gemini：'),
+            : h('div', { style: hintStyle }, '任务 prompt 会作为问题发给 Gemini：'),
           h('textarea', {
             value: prompt,
             onChange: (e) => setPrompt(e.target.value),
@@ -1040,7 +1067,7 @@ window.__ModuleLoader__.load({
                 }),
                 h('button', { onClick: () => loadStepState(stepLoadId), disabled: stepBusy, className: 'dwr-ghost', style: { ...btnGhostStyle, padding: '4px 10px', fontSize: 12 } }, '载入')
                   ,
-                  h('button', { onClick: () => refreshStepState(), disabled: stepBusy || !exprId, className: 'dwr-ghost', style: { ...btnGhostStyle, padding: '4px 10px', fontSize: 12 } }, '刷新'),
+                  h('button', { onClick: () => loadLatestTask(), disabled: stepBusy, className: 'dwr-ghost', style: { ...btnGhostStyle, padding: '4px 10px', fontSize: 12 } }, '刷新'),
                   h('button', { onClick: clearStepState, disabled: stepBusy, className: 'dwr-ghost', style: { ...btnGhostStyle, padding: '4px 10px', fontSize: 12 } }, '清空')
               )
             ),
