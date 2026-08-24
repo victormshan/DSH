@@ -1041,15 +1041,7 @@ window.__ModuleLoader__.load({
                 stepState && stepState.autoReview && h('span', { style: { fontSize: 11, color: '#7c3aed', marginLeft: 6 } }, '· 自动审核模式开'),
                   h('button', { onClick: toggleAutoReview, disabled: stepBusy, className: 'dwr-ghost', style: { ...btnGhostStyle, padding: '2px 8px', fontSize: 11, marginLeft: 6 } }, stepState && stepState.autoReview ? '关闭自动审核' : '开启自动审核'),
                   stepState && stepState.phase === 'planning' && h('button', { onClick: () => setExperimentPhase('executing'), disabled: stepBusy, className: 'dwr-ghost', style: { ...btnGhostStyle, padding: '2px 8px', fontSize: 11, marginLeft: 6 } }, '进入执行阶段'),
-                h('div', { style: { display: 'flex', gap: 6, marginTop: 4, alignItems: 'center' } },
-                  h('input', {
-                    value: stepLoadId,
-                    onChange: (e) => setStepLoadId(e.target.value),
-                    placeholder: '载入已有 expr id，如 expr-2026-08-22_13-51-32',
-                    style: { ...inputStyle, margin: 0, flex: 1, fontSize: 12 }
-                  }),
-                  h('button', { onClick: () => loadStepState(stepLoadId), disabled: stepBusy, className: 'dwr-ghost', style: { ...btnGhostStyle, padding: '4px 10px', fontSize: 12 } }, '载入')
-                ),
+                // 载入/刷新统一在上方「Step List 载入」卡片（含刷新）；此处不再重复载入输入框
 
               steps.map((s) => h('div', { key: s.id, style: { marginTop: 6, padding: 6, background: 'var(--dsw-alias-bg-layer-1, #18181b)', border: '1px solid var(--dsw-alias-border-l1, #3f3f46)', borderRadius: 6 } },
                 h('div', { style: { display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' } },
