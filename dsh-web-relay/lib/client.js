@@ -201,6 +201,9 @@ window.__ModuleLoader__.load({
         },
         status: { pending: '待开始', executing: '执行中', review: '待审核', approved: '已通过', rejected: '已打回' },
         phase: { planning: '架构探讨', executing: '执行' },
+        reviewerExternal: '外部AI',
+        reviewerDialog: '对话模型',
+        reviewerManual: '手动',
         parsing: '解析中…',
         parsePreview: '解析并预览',
         saving: '保存中…',
@@ -297,6 +300,9 @@ window.__ModuleLoader__.load({
         },
         status: { pending: 'Pending', executing: 'Executing', review: 'Review', approved: 'Approved', rejected: 'Rejected' },
         phase: { planning: 'Planning', executing: 'Executing' },
+        reviewerExternal: 'External AI',
+        reviewerDialog: 'Dialog',
+        reviewerManual: 'Manual',
         parsing: 'Parsing…',
         parsePreview: 'Parse & Preview',
         saving: 'Saving…',
@@ -1480,7 +1486,15 @@ window.__ModuleLoader__.load({
                   s.depends_on && s.depends_on.length > 0 && h('span', { style: { fontSize: 10, color: '#fbbf24', marginLeft: 6 } }, '🔒' + T.depOn + ' ' + s.depends_on.map((d) => 'Step ' + d).join(',')),
                   h('span', { style: { color: 'var(--dsw-alias-label-primary, #e4e4e7)' } }, s.title),
                   h('span', { style: { fontSize: 11, color: s.status === 'approved' ? '#4ade80' : s.status === 'rejected' ? '#f87171' : s.status === 'review' ? '#fbbf24' : s.status === 'executing' ? '#60a5fa' : '#a1a1aa' } },
-                    (T.status[s.status] || s.status))
+                    (T.status[s.status] || s.status)),
+                  // v1.0.1: 审核来源徽标（external / dialog / manual）
+                  s.reviewedBy && h('span', {
+                    style: {
+                      fontSize: 10, fontWeight: 600, marginLeft: 6, padding: '1px 6px', borderRadius: 4, whiteSpace: 'nowrap',
+                      color: s.reviewedBy === 'external' ? '#93c5fd' : s.reviewedBy === 'dialog' ? '#a78bfa' : '#fbbf24',
+                      border: '1px solid ' + (s.reviewedBy === 'external' ? 'rgba(147,197,253,.5)' : s.reviewedBy === 'dialog' ? 'rgba(167,139,250,.5)' : 'rgba(251,191,36,.5)')
+                    }
+                  }, s.reviewedBy === 'external' ? T.reviewerExternal : s.reviewedBy === 'dialog' ? T.reviewerDialog : T.reviewerManual)
                 ),
                 s.detail && h('div', { style: { ...hintStyle, marginTop: 2 } }, s.detail),
                 s.acceptance && h('div', { style: { ...hintStyle, marginTop: 2 } }, T.acceptanceLabel + s.acceptance),
