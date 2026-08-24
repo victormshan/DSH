@@ -57,10 +57,10 @@ window.__ModuleLoader__.load({
       'html[data-dwr-docked]{--dwr-splitter-width:5px}' +
       'html[data-dwr-docked],html[data-dwr-docked] body{overflow-x:hidden}' +
       'html[data-dwr-docked] body{padding-right:calc(var(--dwr-panel-width) + var(--dwr-splitter-width)) !important;box-sizing:border-box}' +
-      '.dwr-splitter{position:fixed;top:60;bottom:0;width:5px;cursor:col-resize;z-index:2147483001;touch-action:none;user-select:none}' +
+      '.dwr-splitter{position:fixed;top:60px;bottom:0;width:5px;cursor:col-resize;z-index:2147483001;touch-action:none;user-select:none}' +
       '.dwr-splitter::after{content:"";position:absolute;left:1px;top:0;bottom:0;width:2px;background:var(--dsw-alias-border-l1,rgba(0,0,0,.12));transition:background .15s ease}' +
       '.dwr-splitter:hover::after,.dwr-splitter.dwr-dragging::after{background:var(--dsw-alias-brand-primary,#3b82f6)}' +
-      '.dwr-rail{position:fixed;top:60;right:0;bottom:0;width:28px;display:flex;align-items:center;justify-content:center;background:var(--dsw-alias-bg-overlay,#18181b);border-left:1px solid var(--dsw-alias-border-l1,rgba(0,0,0,.12));cursor:pointer;z-index:2147483000}'
+      '.dwr-rail{position:fixed;top:60px;right:0;bottom:0;width:28px;display:flex;align-items:center;justify-content:center;background:var(--dsw-alias-bg-overlay,#18181b);border-left:1px solid var(--dsw-alias-border-l1,rgba(0,0,0,.12));cursor:pointer;z-index:2147483000}'
 
     const panelStyle = {
       position: 'fixed', top: 60, right: 0, bottom: 0, zIndex: 2147483000,
@@ -886,7 +886,7 @@ window.__ModuleLoader__.load({
           protocol && h('div', { style: { margin: '2px 0' } },
             h('button', {
               onClick: () => setShowProtocol(!showProtocol),
-              style: { background: 'none', border: 'none', color: '#a1a1aa', cursor: 'pointer', fontSize: 12, padding: 0, fontFamily: 'inherit' }
+              style: { background: 'none', border: 'none', color: 'var(--dsw-alias-label-secondary, #a1a1aa)', cursor: 'pointer', fontSize: 12, padding: 0, fontFamily: 'inherit' }
             }, showProtocol ? '▼ 三方协议 ' + (protocol.version || '') : '▶ 三方协议 ' + (protocol.version || '')),
             showProtocol && h('div', { style: { ...preStyle, marginTop: 4, maxHeight: 160, fontSize: 12 } }, protocol.text)
           ),
@@ -946,7 +946,7 @@ window.__ModuleLoader__.load({
               key: a.index,
               style: {
                 display: 'flex', alignItems: 'flex-start', gap: 8,
-                background: '#18181b', border: '1px solid #3f3f46',
+                background: 'var(--dsw-alias-bg-layer-1, #18181b)', border: '1px solid var(--dsw-alias-border-l1, #3f3f46)',
                 borderRadius: 6, padding: '6px 8px', marginTop: 6
               }
             },
@@ -959,7 +959,7 @@ window.__ModuleLoader__.load({
               }),
               h('div', { style: { flex: 1, minWidth: 0 } },
                 h('div', { style: { display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' } },
-                  h('span', { style: { fontSize: 12, color: '#a1a1aa' } }, `#${a.index} ${typeLabel(a.type)}`),
+                  h('span', { style: { fontSize: 12, color: 'var(--dsw-alias-label-secondary, #a1a1aa)' } }, `#${a.index} ${typeLabel(a.type)}`),
                   h('span', { style: { fontSize: 11, color: riskColor(a.risk), border: '1px solid ' + riskColor(a.risk), borderRadius: 4, padding: '0 4px' } }, riskLabel(a.risk)),
                   a.type === 'run_cmd' && h('span', { style: { fontSize: 11, color: '#f87171' } }, '高风险·确认后再勾')
                 ),
@@ -1000,7 +1000,7 @@ window.__ModuleLoader__.load({
               ),
 
             // even when the current panel state is empty after a restart.
-            h('div', { style: { marginTop: 8, border: '1px solid #3f3f46', borderRadius: 6, padding: 8 } },
+            h('div', { style: { marginTop: 8, border: '1px solid var(--dsw-alias-border-l1, #3f3f46)', borderRadius: 6, padding: 8 } },
               h('div', { style: { ...hintStyle, fontWeight: 600, color: '#93c5fd' } }, 'Step List 载入'),
               h('div', { style: { display: 'flex', gap: 6, marginTop: 4, alignItems: 'center' } },
                 h('input', {
@@ -1016,7 +1016,7 @@ window.__ModuleLoader__.load({
             ),
 
             // v1.3: Step List execution + external-AI review
-            steps && steps.length > 0 && h('div', { style: { marginTop: 8, border: '1px solid #3f3f46', borderRadius: 6, padding: 8 } },
+            steps && steps.length > 0 && h('div', { style: { marginTop: 8, border: '1px solid var(--dsw-alias-border-l1, #3f3f46)', borderRadius: 6, padding: 8 } },
               h('div', { style: { ...hintStyle, fontWeight: 600, color: '#93c5fd' } }, 'Step List · 逐步执行/外部 AI 审核'),
                 stepState && stepState.phase && h('span', { style: { fontSize: 11, color: stepState.phase === 'planning' ? '#f59e0b' : '#4ade80', marginLeft: 6 } }, '· 阶段: ' + stepState.phase),
                 stepState && stepState.autoReview && h('span', { style: { fontSize: 11, color: '#7c3aed', marginLeft: 6 } }, '· 自动审核模式开'),
@@ -1032,10 +1032,10 @@ window.__ModuleLoader__.load({
                   h('button', { onClick: () => loadStepState(stepLoadId), disabled: stepBusy, style: { ...btnGhostStyle, padding: '4px 10px', fontSize: 12 } }, '载入')
                 ),
 
-              steps.map((s) => h('div', { key: s.id, style: { marginTop: 6, padding: 6, background: '#18181b', border: '1px solid #3f3f46', borderRadius: 6 } },
+              steps.map((s) => h('div', { key: s.id, style: { marginTop: 6, padding: 6, background: 'var(--dsw-alias-bg-layer-1, #18181b)', border: '1px solid var(--dsw-alias-border-l1, #3f3f46)', borderRadius: 6 } },
                 h('div', { style: { display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' } },
                   h('span', { style: { color: '#93c5fd', fontWeight: 600 } }, `Step ${s.id}`),
-                  h('span', { style: { color: '#e4e4e7' } }, s.title),
+                  h('span', { style: { color: 'var(--dsw-alias-label-primary, #e4e4e7)' } }, s.title),
                   h('span', { style: { fontSize: 11, color: s.status === 'approved' ? '#4ade80' : s.status === 'rejected' ? '#f87171' : s.status === 'review' ? '#fbbf24' : s.status === 'executing' ? '#60a5fa' : '#a1a1aa' } },
                     (({ pending: '待开始', executing: '执行中', review: '待审核', approved: '已通过', rejected: '已打回' })[s.status] || s.status))
                 ),
@@ -1066,7 +1066,7 @@ window.__ModuleLoader__.load({
             h('div', { style: { ...hintStyle, fontWeight: 600, color: '#93c5fd' } }, '执行结果：'),
             execResults.map((r) => h('div', {
               key: r.index,
-              style: { background: '#18181b', border: '1px solid #3f3f46', borderRadius: 6, padding: 6, marginTop: 6 }
+              style: { background: 'var(--dsw-alias-bg-layer-1, #18181b)', border: '1px solid var(--dsw-alias-border-l1, #3f3f46)', borderRadius: 6, padding: 6, marginTop: 6 }
             },
               h('div', { style: { color: r.ok ? '#4ade80' : '#f87171', fontWeight: 600 } },
                 `${r.ok ? '✓' : '✗'} #${r.index} ${typeLabel(r.type)} · ${r.summary}`),
@@ -1102,7 +1102,7 @@ window.__ModuleLoader__.load({
             ? h('div', { style: hintStyle }, '加载中…')
             : traces.length === 0
               ? h('div', { style: hintStyle }, '暂无轨迹。开始一次协作对话（含唤醒/收口）后，这里会显示三方对话流水（web-relay/traces/）。')
-              : sortedTraces.map((t) => h('div', { key: t.id, style: { background: '#18181b', border: '1px solid #3f3f46', borderRadius: 6, padding: 8, marginBottom: 8 } },
+              : sortedTraces.map((t) => h('div', { key: t.id, style: { background: 'var(--dsw-alias-bg-layer-1, #18181b)', border: '1px solid var(--dsw-alias-border-l1, #3f3f46)', borderRadius: 6, padding: 8, marginBottom: 8 } },
                   h('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 } },
                     h('span', { style: { color: '#93c5fd', fontWeight: 600, fontSize: 12, wordBreak: 'break-all' } }, t.id),
                     h('button', {
@@ -1112,7 +1112,7 @@ window.__ModuleLoader__.load({
                   ),
                     !expandedTrace[t.id] && (() => {
                       const s = summarizeTrace(t)
-                      return h('div', { style: { marginTop: 6, padding: 8, background: '#101018', border: '1px solid #2a2a35', borderRadius: 6 } },
+                      return h('div', { style: { marginTop: 6, padding: 8, background: 'var(--dsw-alias-bg-layer-1, #101018)', border: '1px solid var(--dsw-alias-border-l1, #2a2a35)', borderRadius: 6 } },
                         h('div', { style: { fontSize: 11, color: '#93c5fd', fontWeight: 600 } }, '用户任务'),
                         h('div', { style: { ...hintStyle, marginTop: 2 } }, s.userTask),
                         h('div', { style: { fontSize: 11, color: '#f59e0b', fontWeight: 600, marginTop: 6 } }, '过程概述'),
