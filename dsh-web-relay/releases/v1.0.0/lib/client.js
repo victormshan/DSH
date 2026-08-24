@@ -473,7 +473,7 @@ window.__ModuleLoader__.load({
         let cancelled = false
         fetch('/dsh-web-relay/protocol')
           .then((r) => (r.ok ? r.json() : null))
-          .then((d) => { if (!cancelled && d && d.ok) setProtocol({ version: d.version, text: d.text }) })
+          .then((d) => { if (!cancelled && d && d.ok) setProtocol({ version: d.version, text: d.text, v16: d.protocolV16 || null }) })
           .catch(() => { /* fallback: packContext re-fetches */ })
         return () => { cancelled = true }
       }, [open])
@@ -1255,16 +1255,6 @@ window.__ModuleLoader__.load({
         },
           h('strong', { style: { fontWeight: 600, fontSize: 12, flex: '1 1 auto', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, T.title),
           h('div', { style: { display: 'flex', gap: 4, alignItems: 'center', flex: '0 0 auto' } },
-            h('select', {
-              value: protocolVersion,
-              onChange: (e) => setProtocolVersion(e.target.value),
-              title: T.protoTitle,
-              'aria-label': T.protoTitle,
-              style: protoSelectStyle
-            },
-              h('option', { value: 'v1.5' }, T.protoV15),
-              h('option', { value: 'v1.6' }, T.protoV16)
-            ),
             h('button', {
               onClick: (e) => { stop(e); toggleLocale() },
               'aria-label': T.btn.langTitle,
@@ -1291,14 +1281,24 @@ window.__ModuleLoader__.load({
           config && !config.geminiConfigured
             ? h('div', { style: warnStyle }, T.geminiNotConfigured)
             : (config && h('div', { style: hintStyle }, `${T.configVersion}${config.version || '?'} · ${config.geminiConfigured ? T.configReady + ' · model: ' + config.model : T.configNotReady} · shell: ${config.shellAvailable ? '✓' : '✗'} · apiProxy: ${config.apiProxyAvailable ? '✓' : '✗'}`)),
-          // Step 2: quiet protocol version line + collapsible full text (locks
-          // the external-AI role on every session, without stealing the UI).
-          protocol && h('div', { style: { margin: '2px 0' } },
+          // 协议版本选择 + 可展开全文（打包上下文与 Step 实施按所选版本执行）
+          protocol && h('div', { style: { display: 'flex', alignItems: 'center', gap: 6, margin: '2px 0' } },
+            h('select', {
+              value: protocolVersion,
+              onChange: (e) => setProtocolVersion(e.target.value),
+              title: T.protoTitle,
+              'aria-label': T.protoTitle,
+              style: protoSelectStyle
+            },
+              h('option', { value: 'v1.5' }, T.protoV15),
+              h('option', { value: 'v1.6' }, T.protoV16)
+            ),
             h('button', {
               onClick: () => setShowProtocol(!showProtocol),
               style: { background: 'none', border: 'none', color: 'var(--dsw-alias-label-secondary, #a1a1aa)', cursor: 'pointer', fontSize: 12, padding: 0, fontFamily: 'inherit' }
-            }, (showProtocol ? T.protocolCollapse : T.protocolExpand) + ' ' + (protocol.version || '')),
-            showProtocol && h('div', { style: { ...preStyle, marginTop: 4, maxHeight: 160, fontSize: 12 } }, protocol.text)
+            }, (showProtocol ? T.protocolCollapse : T.protocolExpand) + ' ' + (protocolVersion === 'v1.6' && protocol.v16 ? 'v1.6' : 'v1.5')),
+            showProtocol && h('div', { style: { ...preStyle, marginTop: 4, maxHeight: 160, fontSize: 12 } },
+              protocolVersion === 'v1.6' && protocol.v16 ? protocol.v16.text : protocol.text)
           ),
           h('select', {
             value: provider,
