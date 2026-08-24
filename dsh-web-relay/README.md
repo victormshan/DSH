@@ -2,6 +2,9 @@
 
 实验性 free-web 中继插件：在 dsh 主 agent 与外部网页 AI（Gemini Free API 或手动粘贴）之间建立可追溯的三方协作通道。
 
+> **权威来源**：本目录（`victormshan/DSH` 仓库内的 `dsh-web-relay/`）是唯一维护的源码位置。
+> 修改、提交、发版都在此进行；`deploy.ps1` 负责部署到 dsh profile 的安装目录。
+
 - **当前版本**：0.7.0（协议 v1.4：Step List + 外部 AI 审核 + 自动审核 + Planning & Architect 模式）
 - **说明文档**：[docs/dsh-web-relay-说明书.md](docs/dsh-web-relay-说明书.md)
 - **版本快照**：[releases/v0.7.0/](releases/v0.7.0/)（全量文件快照，不依赖增量 Edit）
