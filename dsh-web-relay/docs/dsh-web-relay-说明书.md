@@ -1,7 +1,7 @@
 # dsh-web-relay 说明书
 
-> 适用版本：dsh-web-relay 0.8.0  
-> 协议版本：v1.3  
+> 适用版本：dsh-web-relay 0.9.0  
+> 协议版本：v1.5  
 > 文档性质：基于当前实际源码与任务记录整理
 
 ---
@@ -32,7 +32,7 @@ dsh-web-relay 是 dsh web profile 中的实验性插件，用于在 dsh 主 agen
 
 ## 3. 协议规范（v1.3）
 
-> 本章是 **dsh-web-relay 三方协作协议 v1.3 的正式规范文本**，属于协议层约定，独立于当前 0.6.0 具体实现。
+> 本章是 **dsh-web-relay 三方协作协议 v1.3 的正式规范文本**，属于协议层约定，独立于当前 0.9.0 具体实现。
 
 ### 3.1 协议范围
 
@@ -159,7 +159,8 @@ dsh-web-relay 是 dsh web profile 中的实验性插件，用于在 dsh 主 agen
 
 ### 3.10 协议版本
 
-- 当前协议版本：`v1.4`
+- 当前协议版本：`v1.5`
+- v1.5 新增（协议级）：审核三级降级链（外部 AI → 对话模型 → 手动）、Step 字段 `artifact_required`、审核来源 `reviewedBy`、一键收口语义；与 v1.3 / v1.4 完全向下兼容。
 - 本协议是独立规范；实际插件实现可能逐步演进，但协议语义保持可追溯。
 
 ### 3.11 Planning & Architect 模式（v1.4）
@@ -177,9 +178,23 @@ v1.4 在 v1.3 Step List 执行之前引入可选的 planning 阶段。
 - planning 阶段不应直接输出可执行步骤。
 - 与 v1.3 Step List 完全向下兼容。
 
+### 3.12 审核降级链与容错（v1.5）
+
+v1.5 在 v1.3 Step List 与 v1.4 Planning 之上引入审核降级链与容错字段。
+
+- 审核三级降级：每步进入 `review` 后，按 **外部 AI（Gemini）→ 对话模型（无工具，跟随主会话路由，如 deepseek-v4-flash）→ 用户手动** 的顺序自动降级审核。
+- `reviewedBy` 字段：每步记录审核来源，取值 `external | dialog | manual`。
+- `artifact_required` 字段：Step 可声明 `artifact_required: false`（纯分析/规划步骤不要求实体产物）；校验器优先读 notes 与轨迹，避免误打回。
+- 一键收口语义：全部 `approved` 后可发起收口，生成审核来源汇总并追加轨迹后置整体 `done`。
+
+约束：
+
+- 降级链仅作用于审核环节，不改变执行与轨迹语义。
+- 与 v1.3 Step List、v1.4 Planning 完全向下兼容。
+
 ---
 
-## 4. 实际实现（0.8.0）
+## 4. 实际实现（0.9.0）
 
 > 以下内容来自当前安装源码。
 
@@ -193,9 +208,9 @@ C:\Users\Administrator\.dsh\profiles\web\node_modules\dsh-web-relay
 
 | 文件 | 作用 |
 |---|---|
-| `package.json` | 插件元数据，version 0.8.0 |
+| `package.json` | 插件元数据，version 0.9.0 |
 | `lib/index.js` | 后端：协议常量、路由、Step List 状态机、trace 读写 |
-| `lib/client.js` | 前端：面板、Step List UI、审核操作 |
+| `lib/client.js` | 前端：面板、Step List UI、审核操作、语言设置/i18n |
 | `cordis.patch.yml` | 插件装配声明 |
 
 ### 4.3 后端路由
@@ -209,6 +224,7 @@ POST /dsh-web-relay/execute
 GET  /dsh-web-relay/steps
 POST /dsh-web-relay/steps/update
 POST /dsh-web-relay/steps/auto-review
+POST /dsh-web-relay/steps/finalize  （一键收口）
 POST /dsh-web-relay/trace
 GET  /dsh-web-relay/traces
 GET  /dsh-web-relay/record
@@ -254,11 +270,23 @@ v0.8.0 将面板从「浮动浮层」改为与 DSH 主页面**左右平铺**的�
 - **纯文字 Tab**：「协作对话 / 轨迹」为文字 tab，选中项品牌色 + 下划线
 - **CSS 注入**：`apply` 时注入 `<style data-dwr-dock-css>`（body 留白、分割条、rail、幽灵按钮 hover），防重复
 
+### 4.7 v0.9.0 升级内容
+
+v0.9.0 在 v0.8.0 平铺布局之上新增（协议同步升级至 v1.5，详见 3.12）：
+
+- **M1 防死锁与状态锁**：Step 处于 `executing`/`review` 时前端按钮 Loading 禁用；后端 8 秒状态锁，同一步骤拒绝重复审核/唤醒，返回 `skipped`
+- **M2 审核引擎三级降级**：每步 review 后按 外部 AI（Gemini）→ 对话模型（无工具，跟随主会话路由如 deepseek-v4-flash）→ 用户手动 自动降级；每步记录 `reviewedBy: external | dialog | manual`；steps 支持 `artifact_required: false`（纯分析/规划步骤不要求实体产物）；校验器优先读 notes 与轨迹，避免误打回
+- **M3 流程进度看板**：面板顶部进度条 `Step x/y · 阶段 · 等待方徽标`（等待外部 AI / 主 agent / 你）
+- **M4 审核面板化 + 一键收口**：手动审核在面板内完成（意见输入 + 通过/打回，不再去主会话粘贴）；全部 approved 后「一键收口」自动生成审核来源汇总 + 追加轨迹 + 置 `done`
+- **M5 智能上下文打包**：📦 打包自动注入当前 Step 状态、已完成步骤摘要、最近轨迹、上次审核意见
+- **M6 性能与交互**：分割条拖拽 <180px 自动折叠为 rail；Planning 只读探路 `context_requests` 对高频文件插件直读缓存（TTL 60s），缩短探讨等待
+- **语言设置**：新增语言设置项（中文/英文），`localStorage`（`dsh-web-relay:locale`）持久化，面板 ⚙/语言按钮切换；插件内统一称「任务」（数据目录仍为 `web-relay/experiments/`，历史命名）
+
 ---
 
 ## 5. 使用方法
 
-> 本章基于 dsh-web-relay 0.8.0 实际功能编写。
+> 本章基于 dsh-web-relay 0.9.0 实际功能编写。
 
 ### 5.0 环境配置
 
@@ -275,6 +303,7 @@ dsh web
 ### 5.1 面板功能区域
 
 - 标题栏：任务名 + 最小化（—）/ 关闭（✕）
+- 流程进度条：面板顶部显示 `Step x/y · 阶段 · 等待方徽标`（等待外部 AI / 主 agent / 你）
 - 标签页：协作对话 / 轨迹（纯文字 tab，选中品牌色 + 下划线）
 - 分割条：面板左缘可拖动（320px ~ 50% 视口），宽度持久化
 - 模式选择区：手动粘贴 / Gemini API
@@ -283,7 +312,10 @@ dsh web
 - 回答粘贴区
 - Step List 载入区：载入 / 刷新 / 清空
 - Step List 状态与操作区
+- 手动审核框：`review` 状态下在面板内输入意见 + 通过/打回（不再去主会话粘贴）
+- 一键收口：全部 `approved` 后点击，自动生成审核来源汇总 + 追加轨迹 + 置 `done`
 - 三方轨迹查看区
+- 语言设置：右上角语言按钮切换 中文/英文，`localStorage` 持久化
 
 ### 5.2 手动粘贴模式
 
@@ -315,21 +347,25 @@ dsh web
    - `rejected`：主 agent 修改后重新提交
 5. 全部 approved 后整体状态 `done`
 
-### 5.5 一键自动审核
+### 5.5 自动审核（三级降级）
 
 1. 当前 Step 处于 `review`
 2. 点击「自动审核」
-3. 服务端调用 Gemini
-4. 自动写回 `approved` / `rejected`
-5. 自动唤醒主 agent：
+3. 服务端按三级降级自动审核：
+   - **外部 AI（Gemini）**：首选通道，调用 Gemini 审核
+   - **对话模型（无工具）**：外部 AI 不可用时降级，跟随主会话路由（如 deepseek-v4-flash），以无工具方式审核
+   - **用户手动**：自动通道均不可用时降级到面板内手动审核框（输入意见 + 通过/打回）
+4. 降级原因在界面提示；每步记录审核来源 `reviewedBy: external | dialog | manual`
+5. 自动写回 `approved` / `rejected`
+6. 自动唤醒主 agent：
    - approved 且有下一步 → 继续执行下一步
    - approved 且全部完成 → 最终收口
    - rejected → 修改后重新提交
 
 前提：
 
-- 已配置 `GEMINI_API_KEY`
 - 当前 Step 必须处于 `review`
+- 外部 AI 通道需配置 `GEMINI_API_KEY`；未配置或调用失败时自动降级到下一级
 
 ### 5.6 三方 Trace 轨迹查看
 
@@ -340,10 +376,11 @@ dsh web
 ### 5.7 最终收口机制
 
 1. 所有 Step 均为 `approved`
-2. `steps.json` 整体状态置为 `done`
-3. 任务记录状态置为 `done`
-4. 主 agent 将最终结论追加到三方轨迹
-5. 未写入 `side/`
+2. 点击面板「一键收口」按钮：自动生成审核来源汇总（各步 `reviewedBy`）并追加到三方轨迹
+3. `steps.json` 整体状态置为 `done`
+4. 任务记录状态置为 `done`
+5. 主 agent 将最终结论追加到三方轨迹
+6. 未写入 `side/`
 
 ### 5.8 数据文件
 
@@ -357,13 +394,19 @@ dsh web
 - **刷新**：加载**最新任务**的 Step List 与当前状态——无论当前显示的是哪个任务，清空后点刷新也会回到最新任务
 - **清空**：清空 Step List 显示内容与输入框；清空后**不会自动恢复**，需点「刷新」回到最新任务
 
+### 5.10 语言设置
+
+- 面板右上角语言按钮（⚙ / 语言）可在**中文 / 英文**之间切换
+- 语言选择通过 `localStorage` 持久化（键名 `dsh-web-relay:locale`），刷新后保持
+- 插件面板文案随语言切换；术语统一称「任务」
+
 > 术语约定：插件内统一称「任务」（不再使用「试验」）；数据目录仍为 `web-relay/experiments/`（历史命名）。
 
 ---
 
 ## 6. 开发者扩展
 
-> 本章属于开发者扩展指南，基于当前 0.8.0 实际实现；协议规范仍以第 3 章 v1.3 为准。
+> 本章属于开发者扩展指南，基于当前 0.9.0 实际实现；协议规范仍以第 3 章 v1.3 为准。
 
 ### 6.1 扩展总览
 
@@ -480,7 +523,7 @@ web-relay/traces/expr-<ts>.md
 
 ### 6.7 自动审核
 
-当前 v0.8.0 已提供自动审核接口：
+当前 v0.9.0 已提供自动审核接口：
 
 ```text
 POST /dsh-web-relay/steps/auto-review
@@ -492,14 +535,15 @@ body { workspacePath, exprId, stepId?, sessionId? }
 - 找到当前 `review` 的 Step
 - 读取任务记录与三方轨迹
 - 组装审核上下文
-- 调用 `callGemini`
+- 按三级降级链调用审核通道（外部 AI → 对话模型(无工具) → 手动），并记录 `reviewedBy`
 - 自动解析 `approved` / `rejected`
 - 自动写回 `steps.json` 和 `trace`
 - 若 `approved` 且存在下一步，自动唤醒主 agent 继续执行
+- 全部 `approved` 后，可经 `POST /dsh-web-relay/steps/finalize` 一键收口（生成审核来源汇总 + 追加轨迹 + `done`）
 
 使用前提：
 
-- 已配置 `GEMINI_API_KEY`
+- 外部 AI 通道需配置 `GEMINI_API_KEY`；未配置或失败时自动降级到对话模型 / 手动审核框
 - 当前 Step 必须处于 `review` 状态
 
 ---
@@ -527,13 +571,14 @@ body { workspacePath, exprId, stepId?, sessionId? }
 
 ## 9. 结论
 
-dsh-web-relay 0.8.0 已实现：
+dsh-web-relay 0.9.0 已实现：
 
-- v1.3 协议
+- v1.5 协议（v1.3 Step List 基础 + v1.4 Planning + v1.5 审核降级链）
 - Step List 状态持久化
-- 逐步执行与外部 AI 审核
+- 逐步执行与外部 AI 审核（三级降级：外部 AI → 对话模型 → 手动）
 - rejected 重试
 - 三方轨迹可追溯
-- 自动审核接口 `/dsh-web-relay/steps/auto-review`
+- 自动审核接口 `/dsh-web-relay/steps/auto-review`、一键收口接口 `/dsh-web-relay/steps/finalize`
+- 审核面板化 + 一键收口、流程进度看板、智能上下文打包、语言中/英切换
 
-当前可通过面板按钮触发自动审核；若未配置 `GEMINI_API_KEY`，仍可手动复制审核结果。
+当前可通过面板「自动审核」触发三级降级审核；未配置 `GEMINI_API_KEY` 时自动降级到对话模型或面板内手动审核框。
