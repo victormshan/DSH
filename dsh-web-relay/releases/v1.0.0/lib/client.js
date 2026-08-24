@@ -473,7 +473,7 @@ window.__ModuleLoader__.load({
         let cancelled = false
         fetch('/dsh-web-relay/protocol')
           .then((r) => (r.ok ? r.json() : null))
-          .then((d) => { if (!cancelled && d && d.ok) setProtocol({ version: d.version, text: d.text, v16: d.protocolV16 || null }) })
+          .then((d) => { if (!cancelled && d && d.ok) setProtocol({ version: d.version, text: d.text, v16: d.protocolV16 || null, en: d.en || null }) })
           .catch(() => { /* fallback: packContext re-fetches */ })
         return () => { cancelled = true }
       }, [open])
@@ -577,13 +577,24 @@ window.__ModuleLoader__.load({
           // (never mixed into records/traces); use it directly, fall back to the
           // protocol state fetched at panel open, then to a local default.
           // v1.6: /context 可能同时返回 protocolV16（{version,text,skill}）——
-          // 当前选择 v1.6 时优先用 protocolV16，否则退回 v1.5 的 protocol。
-          const v16 = (protocolVersion === 'v1.6' && data.protocolV16) ? data.protocolV16 : null
+          // 当前选择 v1.6 时优先用 protocolV16，否则退回 v1.5 的 protocol；
+          // 界面语言为 en 时使用后端英文协议文本（data.en）。
+          const localeCtx = (locale === 'en' && data.en) ? data.en : null
+          const pickProtocol = (v15, v16) => {
+            if (protocolVersion === 'v1.6' && v16) return v16
+            return v15
+          }
+          const ctxProto = pickProtocol(
+            (localeCtx ? localeCtx.protocol : data.protocol) || (protocol && (locale === 'en' && protocol.en ? protocol.en.protocol : protocol)),
+            (localeCtx ? localeCtx.protocolV16 : data.protocolV16) || (protocol && protocolVersion === 'v1.6' && locale === 'en' && protocol.en ? protocol.en.protocolV16 : null)
+          )
+          const ctxSkill = (localeCtx ? localeCtx.skill : data.skill) || null
+          const v16 = (protocolVersion === 'v1.6' && (localeCtx ? localeCtx.protocolV16 : data.protocolV16)) ? (localeCtx ? localeCtx.protocolV16 : data.protocolV16) : null
           let protocolText = ''
           if (v16 && v16.text) {
             protocolText = v16.text
-          } else if (data.protocol && data.protocol.text) {
-            protocolText = data.protocol.text
+          } else if (ctxProto && ctxProto.text) {
+            protocolText = ctxProto.text
           } else if (protocol && protocol.text) {
             protocolText = protocol.text
           }
@@ -591,13 +602,14 @@ window.__ModuleLoader__.load({
             protocolText = '三方主体（web-relay 语境）：用户 (the human) / 主 agent (the tool-using agent in the main harness session，负责执行与收口) / 外部AI (external web AI — Gemini/DeepSeek 网页版或 free API，负责提供方案与回答)。任务记录在 web-relay/experiments/，三方轨迹在 web-relay/traces/。复杂任务需输出 json:agent-action + 结构化 steps，主 agent 逐步执行并由外部 AI 审核。（/dsh-web-relay/protocol 不可用时的兜底文本）'
           }
           const v16Skill = (v16 && v16.skill && v16.skill.text) ? v16.skill.text : null
+          const skillText = (v16Skill ? v16Skill : (ctxSkill && ctxSkill.text ? ctxSkill.text : (data.skill && data.skill.text ? data.skill.text : null)))
           const lines = [
             '【三方协作机制（web-relay 语境，每次回答都必须遵循）】',
             protocolVersion === 'v1.6' ? T.protoV16Directive : T.protoV15Directive,
             ...protocolText.split('\n'),
             '',
             '【外部 AI Skill：web_relay_external_ai_protocol（本协议的细化执行规范，必须遵循）】',
-            ...(v16Skill ? v16Skill.split('\n') : (data.skill && data.skill.text ? data.skill.text.split('\n') : [])),
+            ...(skillText ? skillText.split('\n') : []),
             '',
             '【项目上下文】',
             'workspace: ' + (workspacePath || '(未知)'),
@@ -1281,7 +1293,7 @@ window.__ModuleLoader__.load({
           config && !config.geminiConfigured
             ? h('div', { style: warnStyle }, T.geminiNotConfigured)
             : (config && h('div', { style: hintStyle }, `${T.configVersion}${config.version || '?'} · ${config.geminiConfigured ? T.configReady + ' · model: ' + config.model : T.configNotReady} · shell: ${config.shellAvailable ? '✓' : '✗'} · apiProxy: ${config.apiProxyAvailable ? '✓' : '✗'}`)),
-          // 协议版本选择 + 可展开全文（打包上下文与 Step 实施按所选版本执行）
+          // 协议版本选择 + 可展开全文（中/英随界面语言；打包上下文与 Step 实施按所选版本执行）
           protocol && h('div', { style: { display: 'flex', alignItems: 'center', gap: 6, margin: '2px 0' } },
             h('select', {
               value: protocolVersion,
@@ -1298,7 +1310,11 @@ window.__ModuleLoader__.load({
               style: { background: 'none', border: 'none', color: 'var(--dsw-alias-label-secondary, #a1a1aa)', cursor: 'pointer', fontSize: 12, padding: 0, fontFamily: 'inherit' }
             }, (showProtocol ? T.protocolCollapse : T.protocolExpand) + ' ' + (protocolVersion === 'v1.6' && protocol.v16 ? 'v1.6' : 'v1.5')),
             showProtocol && h('div', { style: { ...preStyle, marginTop: 4, maxHeight: 160, fontSize: 12 } },
-              protocolVersion === 'v1.6' && protocol.v16 ? protocol.v16.text : protocol.text)
+              (() => {
+                const active = (locale === 'en' && protocol.en) ? protocol.en : protocol
+                const pick = protocolVersion === 'v1.6' && active.protocolV16 ? active.protocolV16 : active.protocol
+                return pick ? pick.text : protocol.text
+              })())
           ),
           h('select', {
             value: provider,
