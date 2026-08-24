@@ -2,7 +2,7 @@
 
 > 适用版本：dsh-web-relay 0.8.0  
 > 协议版本：v1.3  
-> 文档性质：基于当前实际源码与试验记录整理
+> 文档性质：基于当前实际源码与任务记录整理
 
 ---
 
@@ -139,7 +139,7 @@ dsh-web-relay 是 dsh web profile 中的实验性插件，用于在 dsh 主 agen
 
 ### 3.8 轨迹与产出物约定
 
-- 试验记录：`web-relay/experiments/dsh-web-relay-<ts>.md`
+- 任务记录：`web-relay/experiments/dsh-web-relay-<ts>.md`
 - Step List 状态：`web-relay/experiments/expr-<ts>.steps.json`
 - 三方轨迹：`web-relay/traces/expr-<ts>.md`
 
@@ -233,7 +233,7 @@ traceEntriesFrom
 
 ```text
 web-relay/experiments/dsh-web-relay-<ts>.md
-  试验记录：frontmatter + Prompt/Answer/指令解析/执行结果/分步实施清单
+  任务记录：frontmatter + Prompt/Answer/指令解析/执行结果/分步实施清单
 
 web-relay/experiments/expr-<ts>.steps.json
   Step List 状态：exprId / currentStep / status / steps[] / updatedAt
@@ -241,6 +241,18 @@ web-relay/experiments/expr-<ts>.steps.json
 web-relay/traces/expr-<ts>.md
   三方轨迹：[用户] / [外部AI] / [主 agent] 条目
 ```
+
+### 4.6 界面布局（v0.8.0）
+
+v0.8.0 将面板从「浮动浮层」改为与 DSH 主页面**左右平铺**的停靠栏：
+
+- **停靠位置**：面板 `position: fixed; top: 60px; right: 0; bottom: 0`，宽度 `var(--dwr-panel-width)`（默认 360px）
+- **平铺机制**：打开面板时给 `<html>` 挂 `data-dwr-docked`，CSS 通过 `body { padding-right: 面板宽 + 分割条宽 }` 让 DSH 主页面让出空间，形成左右平铺
+- **可拖动分割条**：面板左缘 5px 分割条，拖拽调整宽度（最小 320px，最大 50% 视口），宽度存 `localStorage`（`dsh-web-relay:panel-width`）刷新自动恢复；分割条中央 3px×24px 半透明指示条，hover 变品牌色
+- **折叠/展开**：标题栏「—」最小化 → 右侧 28px rail；点 rail 展开
+- **样式统一**：全部使用 DSH design tokens（`--dsw-alias-*`）亮/暗主题自动跟随；状态性按钮为幽灵按钮（透明 + 细边框 + hover 浅色），主操作（提问/进入执行阶段/打包上下文）为品牌色实心
+- **纯文字 Tab**：「协作对话 / 轨迹」为文字 tab，选中项品牌色 + 下划线
+- **CSS 注入**：`apply` 时注入 `<style data-dwr-dock-css>`（body 留白、分割条、rail、幽灵按钮 hover），防重复
 
 ---
 
@@ -262,11 +274,14 @@ dsh web
 
 ### 5.1 面板功能区域
 
-- 协议版本提示区
+- 标题栏：任务名 + 最小化（—）/ 关闭（✕）
+- 标签页：协作对话 / 轨迹（纯文字 tab，选中品牌色 + 下划线）
+- 分割条：面板左缘可拖动（320px ~ 50% 视口），宽度持久化
 - 模式选择区：手动粘贴 / Gemini API
 - Prompt 输入区
 - 上下文打包区
 - 回答粘贴区
+- Step List 载入区：载入 / 刷新 / 清空
 - Step List 状态与操作区
 - 三方轨迹查看区
 
@@ -320,21 +335,29 @@ dsh web
 
 - 面板「轨迹」页可查看 `web-relay/traces/*.md`
 - 每条轨迹包含 `[用户]`、`[外部AI]`、`[主 agent]`
-- 可展开查看对应试验记录
+- 可展开查看对应任务记录
 
 ### 5.7 最终收口机制
 
 1. 所有 Step 均为 `approved`
 2. `steps.json` 整体状态置为 `done`
-3. 试验记录状态置为 `done`
+3. 任务记录状态置为 `done`
 4. 主 agent 将最终结论追加到三方轨迹
 5. 未写入 `side/`
 
 ### 5.8 数据文件
 
-- 试验记录：`web-relay/experiments/*.md`
+- 任务记录：`web-relay/experiments/*.md`
 - 步骤状态：`web-relay/experiments/*.steps.json`
 - 三方轨迹：`web-relay/traces/*.md`
+
+### 5.9 Step List 载入 / 刷新 / 清空
+
+- **载入**：输入 expr id，加载**任意任务**（当前任务或历史任务）的 Step List
+- **刷新**：加载**最新任务**的 Step List 与当前状态——无论当前显示的是哪个任务，清空后点刷新也会回到最新任务
+- **清空**：清空 Step List 显示内容与输入框；清空后**不会自动恢复**，需点「刷新」回到最新任务
+
+> 术语约定：插件内统一称「任务」（不再使用「试验」）；数据目录仍为 `web-relay/experiments/`（历史命名）。
 
 ---
 
@@ -348,7 +371,7 @@ dsh-web-relay 的扩展点主要位于：
 
 - 后端 `lib/index.js`：路由、Channel/LLM 适配、Step List 状态机、Trace 存储
 - 前端 `lib/client.js`：面板 UI、事件钩子、与后端 API 交互
-- 数据目录 `web-relay/`：试验记录、步骤状态、三方轨迹
+- 数据目录 `web-relay/`：任务记录、步骤状态、三方轨迹
 
 扩展时应保持：
 
@@ -467,7 +490,7 @@ body { workspacePath, exprId, stepId?, sessionId? }
 服务端逻辑：
 
 - 找到当前 `review` 的 Step
-- 读取试验记录与三方轨迹
+- 读取任务记录与三方轨迹
 - 组装审核上下文
 - 调用 `callGemini`
 - 自动解析 `approved` / `rejected`
