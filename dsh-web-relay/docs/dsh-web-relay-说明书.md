@@ -1,7 +1,7 @@
 # dsh-web-relay 说明书
 
-> 适用版本：dsh-web-relay 0.9.0  
-> 协议版本：v1.5  
+> 适用版本：dsh-web-relay 1.0.0  
+> 协议版本：v1.5 / v1.6（v1.5 线性为默认，v1.6 并发调度可选）  
 > 文档性质：基于当前实际源码与任务记录整理
 
 ---
@@ -30,9 +30,9 @@ dsh-web-relay 是 dsh web profile 中的实验性插件，用于在 dsh 主 agen
 
 ---
 
-## 3. 协议规范（v1.3）
+## 3. 协议规范（v1.3 起，含 v1.5 / v1.6）
 
-> 本章是 **dsh-web-relay 三方协作协议 v1.3 的正式规范文本**，属于协议层约定，独立于当前 0.9.0 具体实现。
+> 本章是 **dsh-web-relay 三方协作协议 v1.3（延伸至 v1.5 审核降级链、v1.6 并发调度）的正式规范文本**，属于协议层约定，独立于当前 1.0.0 具体实现。
 
 ### 3.1 协议范围
 
@@ -117,7 +117,7 @@ dsh-web-relay 是 dsh web profile 中的实验性插件，用于在 dsh 主 agen
 
 约束：
 
-- 主 agent 每次只执行一个 Step。
+- 主 agent 每次只执行一个 Step（v1.6 并发调度下，无依赖步骤可多步并行，见 3.13）。
 - 每步完成后必须将结果写入三方轨迹。
 - 未收到外部 AI `approved` 前，不得执行下一步。
 - 主 agent 可提出落地方案变更，外部 AI 核实后更新或通过。
@@ -127,6 +127,7 @@ dsh-web-relay 是 dsh web profile 中的实验性插件，用于在 dsh 主 agen
 | 状态 | 含义 | 可转换到 |
 |---|---|---|
 | `pending` | 待开始 | `executing` |
+| `blocked` | 前置依赖未满足（v1.6 依赖门控） | `executing`（依赖全部 approved 后可 start） |
 | `executing` | 执行中 | `review` |
 | `review` | 待审核 | `approved`、`rejected` |
 | `approved` | 已通过 | `reopen` 后可回 `pending` |
@@ -159,8 +160,10 @@ dsh-web-relay 是 dsh web profile 中的实验性插件，用于在 dsh 主 agen
 
 ### 3.10 协议版本
 
-- 当前协议版本：`v1.5`
+- 当前协议版本：`v1.6`（可选；**v1.5 线性为默认**，面板顶栏 Protocol Selector 切换，`localStorage` 记忆，见 5.11）
 - v1.5 新增（协议级）：审核三级降级链（外部 AI → 对话模型 → 手动）、Step 字段 `artifact_required`、审核来源 `reviewedBy`、一键收口语义；与 v1.3 / v1.4 完全向下兼容。
+- v1.6 新增（协议级）：Step List 并发调度——steps 元素新增 `depends_on`（前置依赖）与 `parallel_group`（并发组标记）、依赖门控 + 多步并行状态机、唤醒并发清单（⚡ 可并行启动 / 🔒 等待中）；与 v1.5 完全向下兼容。
+- **v1.5 兼容**：v1.5 模式下忽略 `depends_on` / `parallel_group`，按线性顺序执行；外部 AI 即使误带这两个字段也自动降级为顺序执行。
 - 本协议是独立规范；实际插件实现可能逐步演进，但协议语义保持可追溯。
 
 ### 3.11 Planning & Architect 模式（v1.4）
@@ -192,9 +195,54 @@ v1.5 在 v1.3 Step List 与 v1.4 Planning 之上引入审核降级链与容错�
 - 降级链仅作用于审核环节，不改变执行与轨迹语义。
 - 与 v1.3 Step List、v1.4 Planning 完全向下兼容。
 
+### 3.13 Step List 并发调度（v1.6）
+
+v1.6 在 v1.5 线性执行之上引入**并发调度**：steps 元素新增两个可选字段，后端按依赖关系做门控与就绪计算，多个步骤可同时处于 `executing` / `review`。
+
+- **`depends_on`（前置依赖，可选）**：数组，元素为步骤 id；空数组 / 缺省 = 无依赖。v1.5 模式下忽略。
+- **`parallel_group`（并发组标记，可选）**：同组且依赖满足 → 可并行；`null` / 缺省 = 串行。v1.5 模式下忽略。
+
+示例：
+
+```json
+{
+  "id": 4,
+  "title": "前端审核面板开发",
+  "detail": "依赖后端状态锁接口",
+  "review": true,
+  "depends_on": [1],
+  "parallel_group": "A"
+}
+```
+
+- **依赖门控**：`start` 某步时，若其 `depends_on` 中的前置步骤尚未全部 `approved` → 状态置为 `blocked`，并记录 `waitingFor`（未满足的前置步骤列表）；前置全部 `approved` 后再 `start` 才进入 `executing`。
+- **就绪计算（`readySteps`）**：所有前置已 `approved` 且未完成的步骤即为就绪；v1.6 下**多个 step 可同时处于 `executing` / `review`**（v1.5 下每次只允许一个执行中步骤）。
+- **多步并行状态机**：每步独立走 `pending → executing → review → approved / rejected`；整体 `done` 仍需全部步骤 `approved`。
+- **唤醒并发清单**：v1.6 下某步 `approved` 后，唤醒主 agent 时输出并发清单：
+
+```text
+⚡ 可并行启动：Step 1（组A）、Step 4（组A）→ 建议用 subagent 并发执行
+🔒 等待中：Step 2（依赖 1,4）、Step 3（依赖 2）
+```
+
+  ⚡ 项为依赖已满足、可立即并行启动的步骤；🔒 项为仍被前置依赖阻塞的步骤及其依赖说明。
+- **审核独立**：并发组内**每步各自独立审核**，三级降级链（外部 AI → 对话模型 → 手动）与 `reviewedBy: external | dialog | manual` 记录保持不变，互不影响。
+- **执行主体**：插件负责调度建议（并发清单）、状态机、依赖门控与唤醒升级；**实际并行由主 agent 用 dsh 原生 subagent 执行**（如同 v0.9.0 那次三路并发开发），插件给出建议与状态约束，主 agent 决定是否派发 subagent 并行执行。
+- **外部 AI 文本规范**：计划文本中标注并发拓扑，例如：
+
+```text
+[Step 1] (⚡ 可并发 · 组A) 后端状态锁实现
+[Step 2] (🔒 串行 · 依赖 Step 1,4) 前端审核面板开发
+```
+
+约束：
+
+- v1.5 模式下 `depends_on` / `parallel_group` 被忽略，所有步骤按线性顺序执行（外部 AI 即使误带也自动降级为顺序）。
+- 与 v1.5（及 v1.3 / v1.4）完全向下兼容。
+
 ---
 
-## 4. 实际实现（0.9.0）
+## 4. 实际实现（1.0.0）
 
 > 以下内容来自当前安装源码。
 
@@ -208,8 +256,8 @@ C:\Users\Administrator\.dsh\profiles\web\node_modules\dsh-web-relay
 
 | 文件 | 作用 |
 |---|---|
-| `package.json` | 插件元数据，version 0.9.0 |
-| `lib/index.js` | 后端：协议常量、路由、Step List 状态机、trace 读写 |
+| `package.json` | 插件元数据，version 1.0.0 |
+| `lib/index.js` | 后端：协议常量、路由、Step List 状态机（含 v1.6 依赖门控与并发调度）、trace 读写 |
 | `lib/client.js` | 前端：面板、Step List UI、审核操作、语言设置/i18n |
 | `cordis.patch.yml` | 插件装配声明 |
 
@@ -282,11 +330,23 @@ v0.9.0 在 v0.8.0 平铺布局之上新增（协议同步升级至 v1.5，详见
 - **M6 性能与交互**：分割条拖拽 <180px 自动折叠为 rail；Planning 只读探路 `context_requests` 对高频文件插件直读缓存（TTL 60s），缩短探讨等待
 - **语言设置**：新增语言设置项（中文/英文），`localStorage`（`dsh-web-relay:locale`）持久化，面板 ⚙/语言按钮切换；插件内统一称「任务」（数据目录仍为 `web-relay/experiments/`，历史命名）
 
+### 4.8 v1.0.0 升级内容
+
+v1.0.0 在 v0.9.0 之上新增（协议升级至 v1.6 并发调度，详见 3.13）：
+
+- **M1 协议版本选择**：面板顶栏 Protocol Selector 可选 `v1.5 线性` / `v1.6 DAG 并发`，`localStorage`（`dsh-web-relay:protocol-version`）记忆，发起协作前选择
+- **M2 Step List 并发调度**：steps 元素新增 `depends_on` / `parallel_group`；v1.6 下依赖门控 + 多步并行状态机；v1.5 下字段忽略、按线性执行（向后兼容）
+- **M3 依赖门控与就绪计算**：`start` 前置依赖未全部 `approved` → `blocked` + `waitingFor`；后端计算 `readySteps`，多个 step 可同时 `executing` / `review`
+- **M4 唤醒并发清单**：v1.6 下 `approved` 后输出 ⚡ 可并行启动 / 🔒 等待中 清单，建议主 agent 用 subagent 并发执行
+- **M5 审核独立**：并发组内每步各自走三级降级链（external → dialog → manual）并记录 `reviewedBy`，互不影响
+- **M6 packContext 按版本注入 directive**：v1.5 要求外部 AI 输出线性 steps；v1.6 要求外部 AI 分析模块独立性、用 `parallel_group` + `depends_on` 标注拓扑
+- **执行主体**：插件负责调度建议 + 状态机 + 依赖门控；实际并行由主 agent 用 dsh 原生 subagent 执行
+
 ---
 
 ## 5. 使用方法
 
-> 本章基于 dsh-web-relay 0.9.0 实际功能编写。
+> 本章基于 dsh-web-relay 1.0.0 实际功能编写。
 
 ### 5.0 环境配置
 
@@ -303,6 +363,7 @@ dsh web
 ### 5.1 面板功能区域
 
 - 标题栏：任务名 + 最小化（—）/ 关闭（✕）
+- 协议版本选择器：顶栏 Protocol Selector 选择 `v1.5 线性` / `v1.6 DAG 并发`，`localStorage` 记忆，发起协作前选择（详见 5.11）
 - 流程进度条：面板顶部显示 `Step x/y · 阶段 · 等待方徽标`（等待外部 AI / 主 agent / 你）
 - 标签页：协作对话 / 轨迹（纯文字 tab，选中品牌色 + 下划线）
 - 分割条：面板左缘可拖动（320px ~ 50% 视口），宽度持久化
@@ -346,6 +407,8 @@ dsh web
    - `approved`：继续下一步
    - `rejected`：主 agent 修改后重新提交
 5. 全部 approved 后整体状态 `done`
+
+> v1.6 下：无依赖步骤可并发执行（后端给出 ⚡ 并发清单，主 agent 用 dsh 原生 subagent 并行执行），并发组内每步独立审核（详见 3.13）。
 
 ### 5.5 自动审核（三级降级）
 
@@ -402,11 +465,24 @@ dsh web
 
 > 术语约定：插件内统一称「任务」（不再使用「试验」）；数据目录仍为 `web-relay/experiments/`（历史命名）。
 
+### 5.11 协议版本选择
+
+- 面板**顶栏 Protocol Selector** 可在 **v1.5 线性 / v1.6 DAG 并发** 之间选择，**发起协作前**选定
+- 选择通过 `localStorage` 持久化（键名 `dsh-web-relay:protocol-version`），刷新后保持
+- **v1.5 线性**：纯串行 Step 1 → N，适用于单线开发、小修小补；忽略 `depends_on` / `parallel_group`
+- **v1.6 DAG 并发**：依赖门控 + 多步并行，适用于大型重构、多模块/多文件解耦；依赖满足的步骤可并行执行，组内每步独立审核（详见 3.13）
+- 📦 打包上下文按版本注入 directive：v1.5 要求外部 AI 输出线性 steps；v1.6 要求外部 AI 分析模块独立性、用 `parallel_group` + `depends_on` 标注拓扑
+
+| 版本 | 调度 | 适用场景 |
+|---|---|---|
+| v1.5 线性 | 纯串行 Step 1 → N | 单线开发、小修小补 |
+| v1.6 DAG 并发 | 依赖门控 + 多步并行 | 大型重构、多模块/多文件解耦 |
+
 ---
 
 ## 6. 开发者扩展
 
-> 本章属于开发者扩展指南，基于当前 0.9.0 实际实现；协议规范仍以第 3 章 v1.3 为准。
+> 本章属于开发者扩展指南，基于当前 1.0.0 实际实现；协议规范以第 3 章为准（v1.3 起，含 v1.5 / v1.6）。
 
 ### 6.1 扩展总览
 
@@ -419,7 +495,7 @@ dsh-web-relay 的扩展点主要位于：
 扩展时应保持：
 
 - 协议规范与实现分离
-- 状态机语义与 v1.3 一致
+- 状态机语义与 v1.3 一致（v1.6 扩展依赖门控与多步并行）
 - 三方轨迹可追溯
 
 ### 6.2 新增后端 API 路由
@@ -523,7 +599,7 @@ web-relay/traces/expr-<ts>.md
 
 ### 6.7 自动审核
 
-当前 v0.9.0 已提供自动审核接口：
+当前 1.0.0 已提供自动审核接口：
 
 ```text
 POST /dsh-web-relay/steps/auto-review
@@ -540,6 +616,7 @@ body { workspacePath, exprId, stepId?, sessionId? }
 - 自动写回 `steps.json` 和 `trace`
 - 若 `approved` 且存在下一步，自动唤醒主 agent 继续执行
 - 全部 `approved` 后，可经 `POST /dsh-web-relay/steps/finalize` 一键收口（生成审核来源汇总 + 追加轨迹 + `done`）
+- v1.6 下多个步骤可同时处于 `review`：指定 `stepId` 定位目标步骤，并发组内每步独立审核（详见 3.13「审核独立」）
 
 使用前提：
 
@@ -571,14 +648,17 @@ body { workspacePath, exprId, stepId?, sessionId? }
 
 ## 9. 结论
 
-dsh-web-relay 0.9.0 已实现：
+dsh-web-relay 1.0.0 已实现：
 
-- v1.5 协议（v1.3 Step List 基础 + v1.4 Planning + v1.5 审核降级链）
+- v1.6 协议（v1.3 Step List 基础 + v1.4 Planning + v1.5 审核降级链 + v1.6 Step List 并发调度）
+- v1.5 线性为默认、v1.6 并发可选，双版本向后兼容
 - Step List 状态持久化
 - 逐步执行与外部 AI 审核（三级降级：外部 AI → 对话模型 → 手动）
+- 依赖门控 + 多步并行（`depends_on` / `parallel_group`、`readySteps`、`blocked` / `waitingFor`）
+- 唤醒并发清单（⚡ 可并行启动 / 🔒 等待中），主 agent 用 dsh 原生 subagent 并行执行
 - rejected 重试
 - 三方轨迹可追溯
 - 自动审核接口 `/dsh-web-relay/steps/auto-review`、一键收口接口 `/dsh-web-relay/steps/finalize`
-- 审核面板化 + 一键收口、流程进度看板、智能上下文打包、语言中/英切换
+- 审核面板化 + 一键收口、流程进度看板、智能上下文打包、语言中/英切换、顶栏协议版本选择
 
 当前可通过面板「自动审核」触发三级降级审核；未配置 `GEMINI_API_KEY` 时自动降级到对话模型或面板内手动审核框。
