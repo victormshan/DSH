@@ -1,0 +1,13 @@
+# 运行数据（不进版本库）
+web-relay/experiments/
+web-relay/traces/
+
+# 备份与临时产物
+*.bak*
+*.decoded
+*.log
+
+# Node
+node_modules/
+
+# 会话分析临时脚本（如确需入库请显式添加）

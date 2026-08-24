@@ -1,0 +1,20 @@
+{
+  "name": "dsh-web-relay",
+  "version": "0.7.0",
+  "description": "Experimental free-web relay: Gemini free API or manual paste; structured-instruction preview/confirm/execute with server-side re-parse (json:agent-action + Gemini Action Payload protocol); v1.3 Step List execution and external-AI review loop with optional auto-review endpoint; v0.5 record domain is fully decoupled from side-window — records under web-relay/experiments/, three-party traces (用户/主 agent/外部AI) under web-relay/traces/, with a trace page in the panel.",
+  "private": true,
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./lib/client.js",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "bundle": { "patch": "./cordis.patch.yml" },
+    "client": { "platform": "web" }
+  },
+  "files": ["lib/index.js", "lib/client.js", "cordis.patch.yml"],
+  "license": "MIT"
+}

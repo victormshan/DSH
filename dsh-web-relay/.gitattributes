@@ -1,0 +1,16 @@
+# 统一换行符：所有文本文件强制 LF（防止 str_replace / diff 因 CRLF 撕裂）
+* text=auto eol=lf
+
+# 明确按文本处理的类型
+*.js   text eol=lf
+*.mjs  text eol=lf
+*.json text eol=lf
+*.yml  text eol=lf
+*.yaml text eol=lf
+*.md   text eol=lf
+*.ps1  text eol=lf
+
+# 明确按二进制处理的文件
+*.png binary
+*.jpg binary
+*.zstd binary
