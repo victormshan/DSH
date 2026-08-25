@@ -1,0 +1,20 @@
+{
+  "name": "step-value",
+  "version": "0.1.0",
+  "description": "API cost & token usage dashboard for DeepSeek Harness: parse session.jsonl.zstd usage (input/output/cacheRead/reasoning) + model metadata, build Workspace → Session → Turn cost tree with model rate pricing (USD + CNY).",
+  "private": true,
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./lib/client.js",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "bundle": { "patch": "./cordis.patch.yml" },
+    "client": { "platform": "web" }
+  },
+  "files": ["lib/index.js", "lib/client.js", "lib/i18n.js", "cordis.patch.yml"],
+  "license": "MIT"
+}

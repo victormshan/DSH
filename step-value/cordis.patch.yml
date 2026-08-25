@@ -1,0 +1,6 @@
+# step-value plugin mount (dsh web profile). Install by copying this package into
+# <profile>/node_modules/ and adding the insert row below to the profile's
+# cordis.patch.yml (startup-load required for first mount).
+- insert:
+    - id: step-value
+      name: 'step-value'
