@@ -5,9 +5,9 @@
 > **权威来源**：本目录（`victormshan/DSH` 仓库内的 `dsh-web-relay/`）是唯一维护的源码位置。
 > 修改、提交、发版都在此进行；`deploy.ps1` 负责部署到 dsh profile 的安装目录。
 
-- **当前版本**：1.0.0（协议 v1.5/v1.6：v1.5 线性为默认，v1.6 并发调度——depends_on / parallel_group、顶栏协议版本选择 v1.5/v1.6、依赖门控 + 主 agent subagent 并行）
+- **当前版本**：1.1.0（协议 v1.7：多方案比较 alternatives、步骤权重 importance 批量审核、planning 双向探讨、5 段式打包模板、artifacts 前置校验、降本模型）
 - **说明文档**：[docs/dsh-web-relay-说明书.md](docs/dsh-web-relay-说明书.md)
-- **版本快照**：[releases/v1.0.0/](releases/v1.0.0/)（全量文件快照，不依赖增量 Edit）｜[v0.9.0/](releases/v0.9.0/)（上一里程碑）｜[v0.8.0/](releases/v0.8.0/)｜[v0.7.0/](releases/v0.7.0/)
+- **版本快照**：[releases/v1.1.0/](releases/v1.1.0/)（全量文件快照，不依赖增量 Edit）｜[v1.0.0/](releases/v1.0.0/)（上一里程碑）｜[v0.9.0/](releases/v0.9.0/)｜[v0.8.0/](releases/v0.8.0/)｜[v0.7.0/](releases/v0.7.0/)
 - **部署**：运行 `deploy.ps1`（含版本断言检查）或手动复制 `lib/`、`package.json`、`cordis.patch.yml` 到 `C:\Users\Administrator\.dsh\profiles\web\node_modules\dsh-web-relay\`
 
 ---
@@ -16,12 +16,12 @@
 
 ```
 dsh-web-relay/
-├── lib/                    # 插件源码（v1.0.0 权威版本）
-│   ├── index.js            # Host half（1896 行：协议 v1.5/v1.6 双版本、Step List、并发调度、依赖门控、审核降级链、auto-review、Planning）
-│   └── client.js           # Browser bundle（1628 行：平铺布局 + Step List UI + 协议版本选择器 + planning 开关 + 自动审核按钮 + 语言设置）
-├── package.json            # 插件元数据（version 1.0.0）
+├── lib/                    # 插件源码（v1.1.0 权威版本）
+│   ├── index.js            # Host half（2261 行：协议 v1.5/v1.6/v1.7 多版本、Step List、并发调度、依赖门控、审核降级链、auto-review、Planning、alternatives/importance）
+│   └── client.js           # Browser bundle（1818 行：平铺布局 + Step List UI + 协议版本选择器 + planning 开关 + 自动/批量审核按钮 + importance 徽标 + 语言设置）
+├── package.json            # 插件元数据（version 1.1.0）
 ├── cordis.patch.yml        # profile 挂载补丁
-├── docs/                   # 说明书（适用版本 1.0.0）
+├── docs/                   # 说明书（适用版本 1.1.0）
 ├── releases/               # 里程碑全量快照
 ├── deploy.ps1              # 部署脚本（版本断言 + 复制到安装目录）
 ├── .gitattributes          # LF 换行强制
@@ -71,6 +71,7 @@ git tag v0.7.0
 
 | 版本 | 协议 | 内容 |
 |---|---|---|
+| 1.1.0 | v1.7 | 多方案比较 alternatives + 步骤权重 importance 批量审核 + planning 双向 + 5段式打包模板 + artifacts 前置校验 |
 | 1.0.0 | v1.6 | Step List 并发调度（depends_on / parallel_group）+ 顶栏协议版本选择 + 依赖门控 + 主 agent subagent 并行 |
 | 0.9.0 | v1.5 | 审核三级降级链 + 进度看板 + 审核面板化/一键收口 + 智能打包 + 探路缓存 + 语言中/英 |
 | 0.8.0 | v1.4 | 平铺布局：与 DSH 页面左右平铺 + 可拖动分割条 + 折叠 rail + DSH tokens（布局方案落地） |
