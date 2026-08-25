@@ -1,7 +1,7 @@
 # dsh-web-relay 说明书
 
-> 适用版本：dsh-web-relay 1.1.0  
-> 协议版本：v1.7（向下兼容 v1.5 / v1.6；v1.5 线性为默认，v1.6 并发调度可选）  
+> 适用版本：dsh-web-relay 1.2.0  
+> 协议版本：v1.8（向下兼容 v1.5 / v1.6 / v1.7；v1.5 线性为默认，v1.6 / v1.7 / v1.8 均继承 DAG 并发调度）  
 > 文档性质：基于当前实际源码与任务记录整理
 
 ---
@@ -30,9 +30,9 @@ dsh-web-relay 是 dsh web profile 中的实验性插件，用于在 dsh 主 agen
 
 ---
 
-## 3. 协议规范（v1.3 起，含 v1.5 / v1.6 / v1.7）
+## 3. 协议规范（v1.3 起，含 v1.5 / v1.6 / v1.7 / v1.8）
 
-> 本章是 **dsh-web-relay 三方协作协议 v1.3（延伸至 v1.5 审核降级链、v1.6 并发调度、v1.7 多方案比较与步骤权重）的正式规范文本**，属于协议层约定，独立于当前 1.1.0 具体实现。
+> 本章是 **dsh-web-relay 三方协作协议 v1.3（延伸至 v1.5 审核降级链、v1.6 并发调度、v1.7 多方案比较与步骤权重、v1.8 混合模式分工）的正式规范文本**，属于协议层约定，独立于当前 1.2.0 具体实现。
 
 ### 3.1 协议范围
 
@@ -160,10 +160,11 @@ dsh-web-relay 是 dsh web profile 中的实验性插件，用于在 dsh 主 agen
 
 ### 3.10 协议版本
 
-- 当前协议版本：`v1.7`（向下兼容 v1.5 / v1.6；**v1.5 线性为默认**，v1.6 并发调度可选，面板顶栏 Protocol Selector 切换，`localStorage` 记忆，见 5.11）
+- 当前协议版本：`v1.8`（向下兼容 v1.5 / v1.6 / v1.7；**v1.5 线性为默认**，v1.6 / v1.7 / v1.8 均继承 DAG 并发调度，面板顶栏 Protocol Selector 切换，`localStorage` 记忆，见 5.11）
 - v1.5 新增（协议级）：审核三级降级链（外部 AI → 对话模型 → 手动）、Step 字段 `artifact_required`、审核来源 `reviewedBy`、一键收口语义；与 v1.3 / v1.4 完全向下兼容。
 - v1.6 新增（协议级）：Step List 并发调度——steps 元素新增 `depends_on`（前置依赖）与 `parallel_group`（并发组标记）、依赖门控 + 多步并行状态机、唤醒并发清单（⚡ 可并行启动 / 🔒 等待中）；与 v1.5 完全向下兼容。
 - v1.7 新增（协议级）：steps 元素新增 `alternatives`（候选方案数组）与 `importance`（high / medium / low 步骤权重）、planning 双向探讨、5 段式打包模板、artifacts 前置校验（详见 3.15）；与 v1.5 / v1.6 完全向下兼容。
+- v1.8 新增（协议级）：**混合模式与执行/审核分工**——`importance` 从审核权重提示升级为分工契约（`low` 主 agent 直做免外部审 / `medium` 批量轻审 / `high` 三方严格审 / 缺省 `null` 普通步骤）；`review:false` 硬开关与 `importance` 解耦（显式 `review:false` 无条件绕过审核，`review:true` 强制走审核）；`reviewedBy` 新增 `mainagent` 自动豁免来源；三处边缘微调（Step List 重构状态隔离、批量审核原子打回、5 段式打包模板缺省对齐，详见 3.16）；与 v1.5 / v1.6 / v1.7 完全向下兼容。
 - **v1.5 兼容**：v1.5 模式下忽略 `depends_on` / `parallel_group`，按线性顺序执行；外部 AI 即使误带这两个字段也自动降级为顺序执行。
 - 本协议是独立规范；实际插件实现可能逐步演进，但协议语义保持可追溯。
 
@@ -291,12 +292,48 @@ v1.7 在 v1.6 并发调度之上引入**多方案比较**与**步骤权重**，�
 
 约束：
 
-- v1.5 / v1.6 模式下忽略 `alternatives` / `importance` 与双向探讨语义，行为不变。
+- v1.5 / v1.6 模式下忽略 `alternatives` / `importance` 与双向探讨语义，行为不变；v1.7 下 `importance` 作为审核权重提示（批量合并自动审核），v1.8 起升级为执行与审核分工契约（见 3.16）。
 - 与 v1.5（及 v1.3 / v1.4）完全向下兼容。
+
+### 3.16 混合模式与执行/审核分工（v1.8）
+
+v1.8 在 v1.7 多方案比较与步骤权重之上引入**混合模式**：`importance` 从「审核权重提示」升级为「执行与审核分工契约」，配合 `review` 硬开关与 `reviewedBy: 'mainagent'` 自动豁免来源，形成 low 免审、medium 批量轻审、high 三方严格审的分层协作，并落地三处边缘微调。
+
+**3.16.1 `importance` 分工契约**
+
+| 取值 | 分工 | 审核路径 |
+|---|---|---|
+| `low` | 主 agent 直做，免外部审 | 主 agent `complete` 时系统自动置 `approved`，`reviewedBy: 'mainagent'`，留审计、不破坏 `pending → executing → approved` 状态机 |
+| `medium` | 批量轻审 | `batchStepIds` 一次提交多个步骤合并审核（沿用 3.15.2 / 5.12 批量通道） |
+| `high` | 三方严格审 | 单独提交，走外部 AI → 对话模型 → 手动三级降级链（见 3.12），逐步独立审核 |
+| `null`（缺省） | 普通步骤 | 按既有默认策略处理 |
+
+**3.16.2 `review:false` 硬开关（与 `importance` 解耦）**
+
+- `importance` 管**分工与默认审核策略**；`review`（Boolean）管**底层审核流水线硬开关**，两者解耦。
+- 未显式指定 `review` 时，按 `importance` 自动映射：`low` → 自动 approved。
+- 显式 `review: false` → **无条件绕过审核**：`complete` 即 `approved`（`reviewedBy: 'mainagent'`），即使 `importance: high` 也生效。
+- 显式 `review: true` → **强制走审核**：即使 `importance: low` 也进入审核流水线。
+
+**3.16.3 `reviewedBy` 新增 `mainagent` 来源**
+
+- `reviewedBy` 取值扩展为 `external | dialog | manual | mainagent`；`mainagent` 表示主 agent 自动豁免（low 免审 / `review: false` 直过）。
+- 一键收口汇总审核来源时，`mainagent` **单列**，与 external / dialog / manual 区分展示。
+
+**3.16.4 三处边缘微调**
+
+- **① Step List 重构状态隔离**：外部 AI 经 `alternatives` 择优后重构 Step List，**仅对未完成（`pending` / `rejected`）步骤生效**；已 `approved` 历史步骤与产物严禁清除/篡改。新增端点 `POST /dsh-web-relay/steps/restructure`，**合并式重构**，返回 `changes { updated, added, removed, untouchedApproved }`。
+- **② 批量审核原子打回**：`batchStepIds` 批量审核按**原子操作**——任一步骤 `rejected` → 该 batch 内所有步骤统一退回 `rejected`；主 agent 分别补证据后重提。
+- **③ 5 段式打包模板缺省对齐**：`data_schema` / `pricing_map` / `mount_points` / `runtime_limits` / `history_trace` 固定键名；某项不适用时**显式填 "N/A" 或 "none"**，严禁省略字段。
+
+约束：
+
+- v1.5 / v1.6 / v1.7 模式下不启用混合分工语义（`importance` 仍按 v1.7 权重提示处理；`reviewedBy: 'mainagent'`、`restructure`、原子打回不生效），行为不变。
+- 与 v1.5（及 v1.3 / v1.4 / v1.6 / v1.7）完全向下兼容。
 
 ---
 
-## 4. 实际实现（1.1.0）
+## 4. 实际实现（1.2.0）
 
 > 以下内容来自当前安装源码。
 
@@ -310,8 +347,8 @@ C:\Users\Administrator\.dsh\profiles\web\node_modules\dsh-web-relay
 
 | 文件 | 作用 |
 |---|---|
-| `package.json` | 插件元数据，version 1.1.0 |
-| `lib/index.js` | 后端：协议常量、路由、Step List 状态机（含 v1.6 依赖门控与并发调度）、trace 读写 |
+| `package.json` | 插件元数据，version 1.2.0 |
+| `lib/index.js` | 后端：协议常量、路由、Step List 状态机（含 v1.6 依赖门控与并发调度、v1.8 混合模式与 restructure）、trace 读写 |
 | `lib/client.js` | 前端：面板、Step List UI、审核操作、语言设置/i18n |
 | `cordis.patch.yml` | 插件装配声明 |
 
@@ -327,6 +364,7 @@ GET  /dsh-web-relay/steps
 POST /dsh-web-relay/steps/update
 POST /dsh-web-relay/steps/auto-review
 POST /dsh-web-relay/steps/finalize  （一键收口）
+POST /dsh-web-relay/steps/restructure  （v1.8 合并式重构）
 POST /dsh-web-relay/trace
 GET  /dsh-web-relay/traces
 GET  /dsh-web-relay/record
@@ -412,11 +450,26 @@ v1.1.0 在 v1.0.0 之上新增（协议升级至 v1.7，详见 3.15）：
 
 > 降本主线：P2 / P4 / P5 / P6 / P7 / P8 均以**减少 API 交互总 Turn 数**为目标（详见 6.8 降本模型）。
 
+### 4.10 v1.2.0 升级内容
+
+v1.2.0 在 v1.1.0 之上新增（协议升级至 v1.8 混合模式，详见 3.16）：
+
+- **H1 混合模式分工契约**：`importance` 升级为执行与审核分工——`low` 主 agent 直做免外部审（`complete` 自动 `approved`）、`medium` 批量轻审（`batchStepIds` 一次提交多个）、`high` 三方严格审（单独提交，走三级降级链）；缺省 `null` 普通步骤
+- **H2 `review:false` 硬开关**：`review`（Boolean）与 `importance` 解耦——显式 `review: false` 无条件绕过审核（即使 `importance: high`），显式 `review: true` 强制走审核（即使 `importance: low`）；未显式指定时按 `importance` 自动映射（`low` → 自动 approved）
+- **H3 后端自动豁免**：`reviewedBy` 新增 `mainagent` 来源；主 agent `complete` 时 `low` / `review: false` 步骤自动置 `approved`，留审计、不破坏 `pending → executing → approved` 状态机；收口汇总对 `mainagent` 单列
+- **H4 批量审核原子打回**：`batchStepIds` 按原子操作——任一 rejected → 整批统一退回 `rejected`，主 agent 分别补证据后重提
+- **H5 restructure 端点**：新增 `POST /dsh-web-relay/steps/restructure`——外部 AI 经 `alternatives` 择优后的合并式重构，仅对未完成（`pending` / `rejected`）步骤生效，返回 `changes { updated, added, removed, untouchedApproved }`；已 `approved` 历史步骤与产物严禁清除/篡改
+- **H6 5 段式打包模板缺省对齐**：`data_schema` / `pricing_map` / `mount_points` / `runtime_limits` / `history_trace` 固定键名，不适用时显式填 "N/A" 或 "none"，严禁省略字段
+- **H7 前端**：协议选择器支持 v1.8 混合模式、importance 徽标与 low 免审状态展示、`mainagent` 审核来源徽标、restructure 重构 UI（仅动 `pending` / `rejected` 步骤）
+- **H8 文档**：本说明书与 README 同步更新至 v1.8 / 1.2.0，新增 `releases/v1.2.0/RELEASE_NOTES.md`
+
+> 降本主线：H1 的 `low` 免审正式化——每个 low 步骤省 1 次审核 turn；混合模式为未来主形态（纯三方 35% / 混合 40% / 纯独立 25%，详见 6.8）。
+
 ---
 
 ## 5. 使用方法
 
-> 本章基于 dsh-web-relay 1.1.0 实际功能编写。
+> 本章基于 dsh-web-relay 1.2.0 实际功能编写。
 
 ### 5.0 环境配置
 
@@ -433,7 +486,7 @@ dsh web
 ### 5.1 面板功能区域
 
 - 标题栏：任务名 + 最小化（—）/ 关闭（✕）
-- 协议版本选择器：顶栏 Protocol Selector 选择 `v1.5 线性` / `v1.6 DAG 并发`（当前协议 v1.7 兼容两者），`localStorage` 记忆，发起协作前选择（详见 5.11）
+- 协议版本选择器：顶栏 Protocol Selector 选择 `v1.5 线性` / `v1.6 DAG 并发`（当前协议 v1.8 兼容三者），`localStorage` 记忆，发起协作前选择（详见 5.11）
 - 流程进度条：面板顶部显示 `Step x/y · 阶段 · 等待方徽标`（等待外部 AI / 主 agent / 你）
 - 标签页：协作对话 / 轨迹（纯文字 tab，选中品牌色 + 下划线）
 - 分割条：面板左缘可拖动（320px ~ 50% 视口），宽度持久化
@@ -446,6 +499,7 @@ dsh web
 - 手动审核框：`review` 状态下在面板内输入意见 + 通过/打回（不再去主会话粘贴）
 - 一键收口：全部 `approved` 后点击，自动生成审核来源汇总 + 追加轨迹 + 置 `done`
 - importance 徽标：每个 Step 显示 `high` / `medium` / `low` 权重徽标，`low` 步骤默认折叠显示（详见 3.15.2）
+- mainagent 徽标（v1.8）：`low` 免审 / `review:false` 步骤经主 agent 直过后显示 `mainagent` 审核来源徽标（详见 3.16.3）
 - 批量自动审核：`low` / `medium` 的多个 `review` 步骤可一键批量审核（详见 5.12）
 - 候选方案展示：planning / 打包阶段展示主 agent 提交的 `alternatives` 候选（2~3 套，含 label / risk / reason），外部 AI 择优后可在线重构 Step List（详见 3.15.1）
 - 三方轨迹查看区
@@ -540,17 +594,18 @@ dsh web
 
 ### 5.11 协议版本选择
 
-- 面板**顶栏 Protocol Selector** 可在 **v1.5 线性 / v1.6 DAG 并发** 之间选择（当前协议 v1.7 兼容两者并自动叠加 v1.7 能力），**发起协作前**选定
+- 面板**顶栏 Protocol Selector** 可在 **v1.5 线性 / v1.6 DAG 并发** 之间选择（当前协议 v1.8 兼容三者并自动叠加 v1.7 / v1.8 能力），**发起协作前**选定
 - 选择通过 `localStorage` 持久化（键名 `dsh-web-relay:protocol-version`），刷新后保持
 - **v1.5 线性**：纯串行 Step 1 → N，适用于单线开发、小修小补；忽略 `depends_on` / `parallel_group`
 - **v1.6 DAG 并发**：依赖门控 + 多步并行，适用于大型重构、多模块/多文件解耦；依赖满足的步骤可并行执行，组内每步独立审核（详见 3.13）
-- 📦 打包上下文按版本注入 directive：v1.5 要求外部 AI 输出线性 steps；v1.6 要求外部 AI 分析模块独立性、用 `parallel_group` + `depends_on` 标注拓扑
+- 📦 打包上下文按版本注入 directive：v1.5 要求外部 AI 输出线性 steps；v1.6 要求外部 AI 分析模块独立性、用 `parallel_group` + `depends_on` 标注拓扑；v1.8 要求外部 AI 生成 Step List 时标注 `importance`（high / medium / low）或显式 `review:false`（详见 5.15）
 
 | 版本 | 调度 | 适用场景 |
 |---|---|---|
 | v1.5 线性 | 纯串行 Step 1 → N | 单线开发、小修小补 |
 | v1.6 DAG 并发 | 依赖门控 + 多步并行 | 大型重构、多模块/多文件解耦 |
 | v1.7 增强 | 在 v1.5 / v1.6 之上叠加 alternatives / importance / 双向探讨 | 方案分歧大、步骤多需合并审核 |
+| v1.8 混合模式 | 在 v1.6 / v1.7 之上叠加 importance 驱动分工（low 免审 / medium 批量轻审 / high 三方严格审）+ `review:false` 硬开关 | 日常开发默认（降本主线，混合 40% 为主形态） |
 
 ### 5.12 批量自动审核（v1.7）
 
@@ -577,7 +632,7 @@ dsh web
 
 ### 5.14 模式选择指南（三方协作 vs 主 agent 独立 vs 混合）
 
-> 依据 step-value 开发实测（36 turns / $1.82）与 v1.7 降本模型整理，帮助用户按任务类型选择工作模式。
+> 依据 step-value 开发实测（36 turns / $1.82）与 v1.8 降本模型整理，帮助用户按任务类型选择工作模式；混合模式已正式落定为 v1.8 协议语义（见 3.16 / 5.15）。
 
 #### 1. 三种模式
 
@@ -585,15 +640,15 @@ dsh web
 |---|---|---|
 | **三方协作**（外部 AI + 主 agent + 子 agent） | 外部 AI 架构决策/审核，主 agent 编排，子 agent 并行执行 | 中大型功能开发、系统重构、新插件编写、多端协同 |
 | **主 agent 独立** | 单主 agent 自治闭环，无跨体握手 | 局部微调、Quick Fix、脚本编写、单点调试 |
-| **混合**（v1.7 importance 驱动） | 主 agent 直接执行 low/medium 步骤；high 步骤（架构/关键实现）走外部 AI 三方审核 | 大部分日常开发（默认推荐） |
+| **混合**（v1.8 importance 驱动分工） | 主 agent 直做 low（免审自动 approved）/ medium（批量轻审）步骤；high 步骤（架构/关键实现）走外部 AI 三方严格审 | 大部分日常开发（默认推荐） |
 
 #### 2. 对比维度
 
-| 维度 | 三方协作（v1.7） | 主 agent 独立 | 混合 |
+| 维度 | 三方协作（v1.8） | 主 agent 独立 | 混合 |
 |---|---|---|---|
 | 质量上限 | 极高（外部 AI 架构 + artifacts 硬校验防空包） | 中等（单模型能力上限） | 高（关键步骤有外部 AI 把关） |
 | 吞吐 | 极高（三路并发 + 依赖门控） | 一般（串行） | 中高 |
-| **Turn / Token 成本** | 较高（握手/打包/审核/打回） | **极低**（Turn 最小化） | 中（只对 high 步骤额外开销） |
+| **Turn / Token 成本** | 较高（握手/打包/审核/打回） | **极低**（Turn 最小化） | **低**（low 免审砍掉跨体开销，只对 high 步骤额外开销） |
 | 失败/回滚风险 | 低（门控隔离，未过审不合并） | 中（改错需手动回退） | 低 |
 
 #### 3. 成本拐点模型（关键认知）
@@ -609,10 +664,10 @@ dsh web
 
 #### 4. 推荐选择规则
 
-1. **默认选混合**（v1.7 importance 机制天然支持）：low/medium 步骤主 agent 直接做，high 步骤交外部 AI
+1. **默认选混合**（v1.8 协议语义正式落定，见 3.16 / 5.15）：low 步骤主 agent 直做免审（`complete` 自动 `approved`，`reviewedBy: 'mainagent'`）、medium 批量轻审、high 步骤交外部 AI 三方严格审
 2. **小型改动 / 快速试错**：主 agent 独立（成本最低）
 3. **架构级 / 高质量要求**：三方协作（质量与吞吐优先）
-4. **成本敏感**：保持会话连续（cacheRead 复用 $0.00007/1K 超低价）、开启批量审核、依赖 artifacts 前置校验防打回
+4. **成本敏感**：保持会话连续（cacheRead 复用 $0.00007/1K 超低价）、多用 `importance: low` / `review: false` 免审、开启批量审核、依赖 artifacts 前置校验防打回
 
 #### 5. 使用分布参考
 
@@ -620,13 +675,56 @@ dsh web
 纯三方 35% │ 混合 40% │ 纯独立 25%
 ```
 
-混合模式为未来主形态：既保留三方协作的质量上限（架构把关），又砍掉低价值步骤的跨体开销（减 turn 数）。
+混合模式为未来主形态（40%）：v1.8 起已正式落定为协议语义——`importance: low` 免审自动 approved（`reviewedBy: 'mainagent'`），不再只是「审核权重提示」；既保留三方协作的质量上限（high 架构把关），又砍掉低价值步骤的跨体开销（每个 low 步骤省 1 次审核 turn）。
+
+### 5.15 混合模式操作指南（v1.8）
+
+> v1.8 混合模式已正式落定为协议语义：`importance` 驱动执行与审核分工，`review` 硬开关与 `importance` 解耦（协议规范见 3.16）。
+
+#### 1. 声明分工（外部 AI 生成 Step List 时）
+
+外部 AI 在 `steps` 元素中按分工标注 `importance`（或显式 `review`）：
+
+| 声明 | 分工效果 |
+|---|---|
+| `"importance": "high"` | 三方严格审：单独提交，走外部 AI → 对话模型 → 手动三级降级链 |
+| `"importance": "medium"`（或省略） | 批量轻审：`batchStepIds` 一次提交多个步骤合并审核 |
+| `"importance": "low"` | 主 agent 直做免外部审：`complete` 自动 `approved` |
+| `"review": false` | 无条件绕过审核（即使 `importance: high`），`complete` 即 `approved` |
+| `"review": true` | 强制走审核（即使 `importance: low`） |
+| 缺省（`importance` 为 `null`） | 普通步骤，按默认策略处理 |
+
+> 未显式指定 `review` 时按 `importance` 自动映射：`low` → 自动 approved。
+
+#### 2. low 免审流程
+
+1. 步骤声明 `importance: low`（或显式 `review: false`）
+2. 主 agent 执行该步骤，`complete` 时系统**自动置 `approved`**（`reviewedBy: 'mainagent'`，留审计）
+3. 无需进入三级降级链，不消耗外部 AI / 对话模型审核 turn
+4. 一键收口汇总审核来源时，`mainagent` 单列显示
+
+#### 3. 批量轻审与原子打回处理
+
+1. `medium` 步骤置 `review` 后，在面板勾选多个步骤，点「批量自动审核」一次提交（`batchStepIds`）
+2. 批量按**原子操作**审核：任一步骤 `rejected` → 该 batch 内所有步骤统一退回 `rejected`
+3. 主 agent 对打回步骤**分别补证据**后重提（每个步骤独立补充 notes / artifacts，再重新进入审核）
+
+#### 4. restructure 重构用法
+
+1. 外部 AI 经 `alternatives` 择优后，可经 `POST /dsh-web-relay/steps/restructure` 发起**合并式重构**
+2. 重构**仅对未完成（`pending` / `rejected`）步骤生效**；已 `approved` 历史步骤与产物严禁清除/篡改
+3. 后端返回 `changes { updated, added, removed, untouchedApproved }`，可核对本次改动面
+4. 重构完成后继续执行与审核流程
+
+#### 5. 5 段模板 N/A 约定
+
+📦 打包上下文 5 段固定键名：`data_schema` / `pricing_map` / `mount_points` / `runtime_limits` / `history_trace`。某项不适用时**显式填 "N/A" 或 "none"**，严禁省略字段（详见 3.16.4 ③ / 5.13）。
 
 ---
 
 ## 6. 开发者扩展
 
-> 本章属于开发者扩展指南，基于当前 1.1.0 实际实现；协议规范以第 3 章为准（v1.3 起，含 v1.5 / v1.6 / v1.7）。
+> 本章属于开发者扩展指南，基于当前 1.2.0 实际实现；协议规范以第 3 章为准（v1.3 起，含 v1.5 / v1.6 / v1.7 / v1.8）。
 
 ### 6.1 扩展总览
 
@@ -639,7 +737,7 @@ dsh-web-relay 的扩展点主要位于：
 扩展时应保持：
 
 - 协议规范与实现分离
-- 状态机语义与 v1.3 一致（v1.6 扩展依赖门控与多步并行，v1.7 扩展 importance 批量审核与 artifacts 前置校验）
+- 状态机语义与 v1.3 一致（v1.6 扩展依赖门控与多步并行，v1.7 扩展 importance 批量审核与 artifacts 前置校验，v1.8 扩展混合模式分工与 review 硬开关）
 - 三方轨迹可追溯
 
 ### 6.2 新增后端 API 路由
@@ -743,7 +841,7 @@ web-relay/traces/expr-<ts>.md
 
 ### 6.7 自动审核
 
-当前 1.1.0 已提供自动审核接口：
+当前 1.2.0 已提供自动审核接口：
 
 ```text
 POST /dsh-web-relay/steps/auto-review
@@ -762,13 +860,14 @@ body { workspacePath, exprId, stepId?, sessionId? }
 - 全部 `approved` 后，可经 `POST /dsh-web-relay/steps/finalize` 一键收口（生成审核来源汇总 + 追加轨迹 + `done`）
 - v1.6 下多个步骤可同时处于 `review`：指定 `stepId` 定位目标步骤，并发组内每步独立审核（详见 3.13「审核独立」）
 - v1.7 下 `low` / `medium` 步骤可批量合并审核，一次调用审核多个步骤（详见 5.12）
+- **主 agent 自动豁免（v1.8）**：`importance: low` 或显式 `review: false` 的步骤，主 agent `complete` 时后端自动置 `approved`（`reviewedBy: 'mainagent'`，留审计、不破坏 `pending → executing → approved` 状态机），无需进入三级降级链；显式 `review: false` 即使 `importance: high` 也直过（详见 3.16）
 
 使用前提：
 
 - 外部 AI 通道需配置 `GEMINI_API_KEY`；未配置或失败时自动降级到对话模型 / 手动审核框
 - 当前 Step 必须处于 `review` 状态
 
-### 6.8 降本模型（v1.7）
+### 6.8 降本模型（v1.8）
 
 **每-turn 固定成本模型（实测）**：
 
@@ -783,8 +882,9 @@ body { workspacePath, exprId, stepId?, sessionId? }
 4. **依赖链合并准则（P8）**：轻量、无独立依赖的步骤可合并为一步；有硬依赖（下游强依赖其产出）的步骤**强保留独立**，避免合并后返工
 5. **增量 Trace 上报（P7）**：重提 / 回写轨迹用 Diff 增量或凭证摘要，避免整段轨迹重复上报
 6. **subagent 上下文隔离（P9）**：并行组内每个 subagent 独立上下文，互不污染，避免跨组上下文膨胀推高 cacheRead
+7. **low 免审（v1.8 混合模式）**：`importance: low` / 显式 `review: false` 步骤由主 agent 直做免外部审（`complete` 自动 `approved`，`reviewedBy: 'mainagent'`）——**每个 low 步骤省 1 次审核 turn**；混合模式已正式落定为未来主形态（纯三方 35% / 混合 40% / 纯独立 25%，详见 3.16 / 5.15）
 
-> 目标：把审核 / 执行 turn 从「每步 1 次」压到「可合并步骤批量 1 次 + 必须独立的高权重步骤各自 1 次」，总 Turn 数下降即成本同比下降。
+> 目标：把审核 / 执行 turn 从「每步 1 次」压到「low 免审 0 次 + 可合并步骤批量 1 次 + 必须独立的高权重步骤各自 1 次」，总 Turn 数下降即成本同比下降。
 
 ---
 
@@ -811,15 +911,19 @@ body { workspacePath, exprId, stepId?, sessionId? }
 
 ## 9. 结论
 
-dsh-web-relay 1.1.0 已实现：
+dsh-web-relay 1.2.0 已实现：
 
-- v1.7 协议（v1.3 Step List 基础 + v1.4 Planning + v1.5 审核降级链 + v1.6 Step List 并发调度 + v1.7 多方案比较与步骤权重）
-- v1.5 线性为默认、v1.6 并发可选、v1.7 兼容前两者，多版本向后兼容
+- v1.8 协议（v1.3 Step List 基础 + v1.4 Planning + v1.5 审核降级链 + v1.6 Step List 并发调度 + v1.7 多方案比较与步骤权重 + v1.8 混合模式分工）
+- v1.5 线性为默认、v1.6 / v1.7 / v1.8 均继承并发调度，多版本向后兼容
 - Step List 状态持久化
 - 逐步执行与外部 AI 审核（三级降级：外部 AI → 对话模型 → 手动）
 - 依赖门控 + 多步并行（`depends_on` / `parallel_group`、`readySteps`、`blocked` / `waitingFor`）
 - 唤醒并发清单（⚡ 可并行启动 / 🔒 等待中），主 agent 用 dsh 原生 subagent 并行执行
 - 多方案比较（`alternatives`）与步骤权重（`importance`）批量合并审核（v1.7）
+- 混合模式分工（v1.8）：`importance` 驱动执行与审核分工——low 免审（`complete` 自动 approved，`reviewedBy: 'mainagent'`）/ medium 批量轻审 / high 三方严格审；`review:false` 硬开关与 `importance` 解耦（显式 `review:false` 无条件绕过审核）
+- Step List 重构状态隔离（v1.8）：`POST /dsh-web-relay/steps/restructure` 合并式重构，仅动未完成（`pending` / `rejected`）步骤，返回 `changes { updated, added, removed, untouchedApproved }`，已 approved 历史步骤与产物严禁清除/篡改
+- 批量审核原子打回（v1.8）：`batchStepIds` 任一 rejected → 整批统一退回，主 agent 分别补证据后重提
+- 5 段式打包模板缺省对齐（v1.8）：`data_schema` / `pricing_map` / `mount_points` / `runtime_limits` / `history_trace` 固定键名，不适用时显式填 "N/A" 或 "none"
 - planning 双向探讨（P3）、5 段式打包模板（P4）、artifacts 前置校验（P5）
 - 降本模型：每-turn 固定成本 ≈ $0.05，减少 API 交互总 Turn 数为第一优先级（工具批量化 / 批量审核 / 前置校验 / 增量 Trace / 依赖链合并 / subagent 上下文隔离）
 - rejected 重试
@@ -827,4 +931,4 @@ dsh-web-relay 1.1.0 已实现：
 - 自动审核接口 `/dsh-web-relay/steps/auto-review`、一键收口接口 `/dsh-web-relay/steps/finalize`
 - 审核面板化 + 一键收口、流程进度看板、智能上下文打包、语言中/英切换、顶栏协议版本选择
 
-当前可通过面板「自动审核」触发三级降级审核；未配置 `GEMINI_API_KEY` 时自动降级到对话模型或面板内手动审核框。
+当前可通过面板「自动审核」触发三级降级审核；未配置 `GEMINI_API_KEY` 时自动降级到对话模型或面板内手动审核框；v1.8 下 `importance: low` / `review: false` 步骤由主 agent 直做免审，不进入降级链。
