@@ -431,6 +431,9 @@ const LABEL_ROLE = { '用户': 'user', '主 agent': 'mainagent', '外部AI': 'ex
 const GEMINI_ROOT = 'https://generativelanguage.googleapis.com/v1beta/models'
 const GEMINI_KEY = process.env.GEMINI_API_KEY ?? ''
 const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-3.6-flash'
+// v1.9 claude 通道：默认 Claude 模型（经 harness llm 服务 anthropic provider 调用；
+// 需配置 llm-pi-ai providers.anthropic 路由 + ANTHROPIC_API_KEY 环境变量）。可用 DSH_RELAY_CLAUDE_MODEL 覆盖。
+export const CLAUDE_DEFAULT_MODEL = process.env.DSH_RELAY_CLAUDE_MODEL || 'claude-sonnet-4-5'
 
 const RUN_CMD_TIMEOUT_DEFAULT = 30000
 const RUN_CMD_TIMEOUT_MAX = 60000
@@ -1339,6 +1342,57 @@ export function apply(ctx) {
         answer = r.text
         if (degraded) providerLabel = '对话模型（降级）'
         askChannel = degraded ? 'dialog-fallback' : 'gemini-free'
+      } else if (provider === 'claude') {
+        // v1.9: Claude API 通道——复用 harness llm 服务的 anthropic provider（llm-pi-ai 路由），
+        // 需 ANTHROPIC_API_KEY + cordis.patch.yml 配置 providers.anthropic；失败降级 dialog → manual。
+        providerLabel = 'Claude API'
+        if (!prompt) return json(res, 400, { ok: false, error: '缺少 prompt' })
+        const guidedPrompt = [
+          prompt,
+          '',
+          '【dsh-web-relay 协作要求】',
+          '如果这是一个复杂任务，请在回答中同时输出 json:agent-action 代码块（含 wake_agent 或 plan）和机器可读 steps 数组。',
+          '如果是简单问题，直接回答即可。',
+          '',
+          WEB_RELAY_PROTOCOL,
+          '',
+          WEB_RELAY_EXTERNAL_AI_SKILL
+        ].join('\n')
+        let r = { ok: false, error: 'llm 服务不可用' }
+        let degraded = false
+        if (llm) {
+          try {
+            const chunks = []
+            const stream = llm.stream({
+              provider: 'anthropic',
+              model: CLAUDE_DEFAULT_MODEL,
+              messages: [{ role: 'user', content: [{ type: 'text', text: guidedPrompt }] }],
+              tools: [],
+              stream: false,
+              signal: AbortSignal.timeout(120000)
+            })
+            for await (const chunk of stream) {
+              if (chunk && chunk.type === 'error') r = { ok: false, error: String(chunk.error || 'llm error') }
+              const text = extractChunkText(chunk)
+              if (text) chunks.push(text)
+            }
+            const text = chunks.join('').trim()
+            if (text) r = { ok: true, text }
+            else r = { ok: false, error: 'Claude 返回空' }
+          } catch (e) {
+            r = { ok: false, error: String((e && e.message) || e) }
+          }
+          if (!r.ok) {
+            // 降级链：Claude 失败 → 内部对话模型 → 报错（pause）
+            const d = await callDialogModel(guidedPrompt)
+            if (d.ok) { r = d; degraded = true }
+            else r = { ok: false, error: `Claude 调用失败（${r.error}）；对话模型降级亦失败（${d.error}）` }
+          }
+        }
+        if (!r.ok) return json(res, 502, r)
+        answer = r.text
+        if (degraded) providerLabel = '对话模型（降级）'
+        askChannel = degraded ? 'dialog-fallback' : 'claude'
       } else if (provider === 'manual') {
         providerLabel = '手动粘贴'
         if (!pasted) return json(res, 400, { ok: false, error: 'manual 模式需要粘贴回答' })

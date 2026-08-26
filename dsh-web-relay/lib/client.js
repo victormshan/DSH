@@ -153,6 +153,8 @@ window.__ModuleLoader__.load({
         clipboardUnavailable: '剪贴板不可用，请手动复制预览区',
         providerManual: '手动粘贴（DeepSeek/Gemini 网页）',
         providerGemini: 'Gemini Free API（官方免费）',
+        providerClaude: 'Claude API（Anthropic）',
+        claudeHint: '任务 prompt 将经 harness llm 服务调用 Claude（需配置 ANTHROPIC_API_KEY + anthropic 路由）：',
         architectOn: '🧭 架构探讨开',
         architectOff: '🧭 架构探讨',
         protocolExpand: '▶ 三方协议',
@@ -281,6 +283,8 @@ window.__ModuleLoader__.load({
         clipboardUnavailable: 'Clipboard unavailable; copy the preview manually',
         providerManual: 'Manual paste (DeepSeek/Gemini web)',
         providerGemini: 'Gemini Free API (official free)',
+        providerClaude: 'Claude API (Anthropic)',
+        claudeHint: 'The task prompt will be sent to Claude via the harness llm service (requires ANTHROPIC_API_KEY + anthropic route):',
         architectOn: '🧭 Architecture on',
         architectOff: '🧭 Architecture',
         protocolExpand: '▶ Protocol',
@@ -1530,11 +1534,14 @@ window.__ModuleLoader__.load({
             style: { ...inputStyle, width: 'auto' }
           },
             h('option', { value: 'manual' }, T.providerManual),
-            h('option', { value: 'gemini-free' }, T.providerGemini)
+            h('option', { value: 'gemini-free' }, T.providerGemini),
+            h('option', { value: 'claude' }, T.providerClaude)
           ),
           provider === 'manual'
             ? h('div', { style: hintStyle }, T.manualHint)
-            : h('div', { style: hintStyle }, T.geminiHint),
+            : provider === 'claude'
+              ? h('div', { style: hintStyle }, T.claudeHint)
+              : h('div', { style: hintStyle }, T.geminiHint),
           h('textarea', {
             value: prompt,
             onChange: (e) => setPrompt(e.target.value),
