@@ -517,6 +517,31 @@ v1.3.0 在 v1.2.1 之上新增（外部 AI 双视角评估批准：草案一 Aut
 
 > 验证（expr-2026-08-26_14-48-26）：降级链静态 6 标记 + 判定 5 用例；AutoIteration 声明解析 5 用例 + 熔断 + 版间门；8 组回归全 PASS（v1.8/v1.8.1 基线未破坏）。
 
+### 4.13 AutoIteration 3 版实测案例与复盘（step-value 0.1.0 → 0.3.0）
+
+> 首个 AutoIteration 全自动 3 版演进实测（expr-2026-08-26_15-17-07），验证 v1.9 协议在极低人类干预下的自动驾驶能力，作为后续自动演进任务的标准化范本。
+
+**任务声明**：`{"iterations": 3, "finalAcceptance": "三版后 step-value 功能增强、/summary 性能改善（10s 内返回）、全量验证通过、版本发布 0.3.0 并部署", "autoDecision": true}`
+
+| 版 | 版本 | 内容 | 关键实测 | 审核 |
+|---|---|---|---|---|
+| V1 | `v0.2.0-v1` | 持久化磁盘缓存（`~/.dsh/step-value-cache`，sig=`mtimeMs:size`）+ MODEL_PRICES 扩充 5 模型 + summary `perModel`/`avgCostPerTurn` | 首次 7.7s（原 >10s 超时）/ 缓存 9ms | external 1 + manual 3 |
+| V2 | `v0.2.0-v2` | 修复 dialog 降级链空响应（`extractChunkText` 递归提取 + provider 容错）+ 缓存层重构 + 性能三方案实测 + 版间门持久化验证 | 三方案实测：串行 7.7s / Promise 并行 7.7s（CPU 密集无效）/ Worker 池 12.5s（模块重复 import + 序列化开销） | manual 3 |
+| V3 | **`v0.3.0`** | 端到端验收（summary/tree/step-details）+ README + 正式发布（替代预发布 tag） | 首次 8.1s / 缓存 11ms / 4 工作区 34 会话 | manual 2 + mainagent 免审 1 |
+
+**机制验证结论**：
+
+- **版间门自动递进** ✓：V1→V2→V3 全程自动；V2/V3 方案均由主 agent 按 v1.9 语义**主动 `/ask` 外部 AI** 请求（不因 autoDecision=true 而停等用户）
+- **全角色降级链韧性** ✓：Gemini 频发 HTTP 429（免费层配额耗尽）下 external→dialog→manual 兜底链全程生效，**流水线零卡死**；降级步骤由主 agent 代审并附验证证据
+- **实测炼金（发现并修复 2 个生产缺陷）**：
+  1. `writeStepState` 写盘白名单缺 AutoIteration 字段（iterations/currentIteration 等）→ 声明丢失、版间门失效 → **修复**（commit `38ccfa1`，部署待重启）
+  2. `callDialogModel`（llm.stream deepseek-official）返回空 → 降级链 dialog 环节失效 → **修复**（extractChunkText + provider 容错重试，9 用例）
+- **性能边界结论**：zstd 解压为同步 CPU 密集（单线程），Promise 并行无效、Worker 池因模块重复 import + 大结果序列化更慢；`<5s` 目标不现实，以 `<10s` 首次 + `<500ms` 缓存达标
+
+**发布**：commit `ecfeb2f`（V1）/ `6a91215`（V2）/ `2d9f699`（V3）+ tags `v0.2.0-v1`/`v0.2.0-v2`/`v0.3.0` + push；step-value 安装目录 0.3.0（备份 bak-v02）；任务 finalize done，三方轨迹完整。
+
+**范本要素（后续 AutoIteration 任务复用）**：① 声明 `iterations/finalAcceptance/autoDecision`；② 每版由外部 AI 输出修正 Step List（importance 分工）；③ 版间门自动递进；④ 外部 AI 不可用 → 降级链（dialog/manual）保障不卡死；⑤ 预发布 tag `vX.Y.Z-iter.N` → 终态正式 tag。
+
 ---
 
 ## 5. 使用方法
