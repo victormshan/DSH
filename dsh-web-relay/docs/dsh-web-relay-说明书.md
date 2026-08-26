@@ -331,6 +331,18 @@ v1.8 在 v1.7 多方案比较与步骤权重之上引入**混合模式**：`impo
 - v1.5 / v1.6 / v1.7 模式下不启用混合分工语义（`importance` 仍按 v1.7 权重提示处理；`reviewedBy: 'mainagent'`、`restructure`、原子打回不生效），行为不变。
 - 与 v1.5（及 v1.3 / v1.4 / v1.6 / v1.7）完全向下兼容。
 
+**3.16.5 V1.8.1 澄清（协议级，版本号保持 v1.8）**
+
+经三方协作双视角评估与外部 AI 评审定案（expr-2026-08-26_13-16-32 / 13-37-24 / 13-49-58），补充以下边界澄清：
+
+1. `reviewSpecified` 判定：以 `typeof step.review === 'boolean'` 为准；`review: null` 或字段缺失一律视为未显式指定（`reviewSpecified = false`），按 `importance` 映射；外部 AI 严禁用 `review: null` 表达显式意图，必须输出 `boolean` 或直接省略该键。
+2. 安全护栏优先：`review: false` 仅表示跳过三方/人类审核流（直接置 approved）；主 agent 本地安全护栏（危险命令拦截、越界文件读写策略）为运行时最高级硬约束，优先级高于任何协议参数，不得因 `review: false` 解除。
+3. 打回副作用：批量打回仅倒转步骤状态并清空 `reviewedBy`，不触发代码回滚；重提时针对拒收意见补证据/微调即可；被打回步骤的下游依赖自动闭锁。
+4. 重构作用域：`restructure` 仅允许修改/删除 `pending` 与 `rejected` 步骤，`approved` 步骤与产物严禁篡改；被删除/替换步骤记录于 `changes.removed` 并写入 trace 留痕；物理中间产物清理属主 agent 执行纪律。
+5. 拓扑继承：重构后的 `pending` 步骤允许在 `depends_on` 中引用历史 `approved` 步骤，门控按新拓扑计算，已有 `approved` 状态不受影响。
+6. 悬空依赖校验：`restructure` 服务端校验所有 `depends_on` 引用，指向已删除步骤时返回 **400**（拒绝本次重构）。
+7. `reviewedBy` 清空：步骤被打回（单步打回、自动审核打回、批量连带打回）时清空 `reviewedBy`（置 `null`），重新审核通过后再记录审核来源。
+
 ---
 
 ## 4. 实际实现（1.2.0）

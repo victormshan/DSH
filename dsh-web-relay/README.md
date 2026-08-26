@@ -5,7 +5,7 @@
 > **权威来源**：本目录（`victormshan/DSH` 仓库内的 `dsh-web-relay/`）是唯一维护的源码位置。
 > 修改、提交、发版都在此进行；`deploy.ps1` 负责部署到 dsh profile 的安装目录。
 
-- **当前版本**：1.2.0（协议 v1.8：混合模式 importance 驱动分工、review:false 硬开关、restructure 状态隔离、批量原子打回、5 段模板缺省对齐）
+- **当前版本**：1.2.1（协议 v1.8：混合模式 importance 驱动分工、review:false 硬开关、restructure 状态隔离、批量原子打回、5 段模板缺省对齐；v1.8.1 澄清：悬空依赖校验 400、打回清空 reviewedBy、review:null 语义、安全护栏优先）
 - **说明文档**：[docs/dsh-web-relay-说明书.md](docs/dsh-web-relay-说明书.md)
 - **版本快照**：[releases/v1.2.0/](releases/v1.2.0/)（全量文件快照，不依赖增量 Edit）｜[releases/v1.1.0/](releases/v1.1.0/)（上一里程碑）｜[v1.0.0/](releases/v1.0.0/)｜[v0.9.0/](releases/v0.9.0/)｜[v0.8.0/](releases/v0.8.0/)｜[v0.7.0/](releases/v0.7.0/)
 - **部署**：运行 `deploy.ps1`（含版本断言检查）或手动复制 `lib/`、`package.json`、`cordis.patch.yml` 到 `C:\Users\Administrator\.dsh\profiles\web\node_modules\dsh-web-relay\`
@@ -16,12 +16,12 @@
 
 ```
 dsh-web-relay/
-├── lib/                    # 插件源码（v1.2.0 权威版本）
+├── lib/                    # 插件源码（v1.2.1 权威版本）
 │   ├── index.js            # Host half（2455 行：协议 v1.5/v1.6/v1.7/v1.8 多版本、Step List、并发调度、依赖门控、审核降级链、auto-review、Planning、alternatives/importance、restructure、原子打回、mainagent 自动豁免）
 │   └── client.js           # Browser bundle（1920 行：平铺布局 + Step List UI + 协议版本选择器(v1.8) + planning 开关 + 自动/批量审核按钮 + importance/mainagent 徽标 + restructure 重构 UI + 语言设置）
-├── package.json            # 插件元数据（version 1.2.0）
+├── package.json            # 插件元数据（version 1.2.1）
 ├── cordis.patch.yml        # profile 挂载补丁
-├── docs/                   # 说明书（适用版本 1.2.0）
+├── docs/                   # 说明书（适用版本 1.2.1）
 ├── releases/               # 里程碑全量快照
 ├── deploy.ps1              # 部署脚本（版本断言 + 复制到安装目录）
 ├── .gitattributes          # LF 换行强制
@@ -71,6 +71,7 @@ git tag v0.7.0
 
 | 版本 | 协议 | 内容 |
 |---|---|---|
+| 1.2.1 | v1.8（+v1.8.1 澄清） | restructure 悬空依赖校验 400 + 打回清空 reviewedBy + review:null 语义 + 安全护栏优先（三方双视角评估定案） |
 | 1.2.0 | v1.8 | 混合模式 importance 驱动分工（low 免审 / medium 批量轻审 / high 三方严格审）+ review:false 硬开关 + restructure 状态隔离 + 批量原子打回 + 5 段模板缺省对齐 |
 | 1.1.0 | v1.7 | 多方案比较 alternatives + 步骤权重 importance 批量审核 + planning 双向 + 5段式打包模板 + artifacts 前置校验 |
 | 1.0.0 | v1.6 | Step List 并发调度（depends_on / parallel_group）+ 顶栏协议版本选择 + 依赖门控 + 主 agent subagent 并行 |
