@@ -1,7 +1,7 @@
 # dsh-web-relay 说明书
 
-> 适用版本：dsh-web-relay 1.2.1  
-> 协议版本：v1.8（向下兼容 v1.5 / v1.6 / v1.7；v1.5 线性为默认，v1.6 / v1.7 / v1.8 均继承 DAG 并发调度）  
+> 适用版本：dsh-web-relay 1.3.0  
+> 协议版本：v1.9（向下兼容 v1.5 / v1.6 / v1.7 / v1.8；v1.5 线性为默认，v1.6 / v1.7 / v1.8 / v1.9 均继承 DAG 并发调度）  
 > 文档性质：基于当前实际源码与任务记录整理
 
 ---
@@ -32,7 +32,7 @@ dsh-web-relay 是 dsh web profile 中的实验性插件，用于在 dsh 主 agen
 
 ## 3. 协议规范（v1.3 起，含 v1.5 / v1.6 / v1.7 / v1.8）
 
-> 本章是 **dsh-web-relay 三方协作协议 v1.3（延伸至 v1.5 审核降级链、v1.6 并发调度、v1.7 多方案比较与步骤权重、v1.8 混合模式分工）的正式规范文本**，属于协议层约定，独立于当前 1.2.1 具体实现。
+> 本章是 **dsh-web-relay 三方协作协议 v1.3（延伸至 v1.5 审核降级链、v1.6 并发调度、v1.7 多方案比较与步骤权重、v1.8 混合模式分工、v1.9 自动迭代与全角色降级）的正式规范文本**，属于协议层约定，独立于当前 1.3.0 具体实现。
 
 ### 3.1 协议范围
 
@@ -160,7 +160,7 @@ dsh-web-relay 是 dsh web profile 中的实验性插件，用于在 dsh 主 agen
 
 ### 3.10 协议版本
 
-- 当前协议版本：`v1.8`（向下兼容 v1.5 / v1.6 / v1.7；**v1.5 线性为默认**，v1.6 / v1.7 / v1.8 均继承 DAG 并发调度，面板顶栏 Protocol Selector 切换，`localStorage` 记忆，见 5.11）
+- 当前协议版本：`v1.9`（向下兼容 v1.5 / v1.6 / v1.7 / v1.8；**v1.5 线性为默认**，v1.6 / v1.7 / v1.8 / v1.9 均继承 DAG 并发调度，面板顶栏 Protocol Selector 切换，`localStorage` 记忆，见 5.11）
 - v1.5 新增（协议级）：审核三级降级链（外部 AI → 对话模型 → 手动）、Step 字段 `artifact_required`、审核来源 `reviewedBy`、一键收口语义；与 v1.3 / v1.4 完全向下兼容。
 - v1.6 新增（协议级）：Step List 并发调度——steps 元素新增 `depends_on`（前置依赖）与 `parallel_group`（并发组标记）、依赖门控 + 多步并行状态机、唤醒并发清单（⚡ 可并行启动 / 🔒 等待中）；与 v1.5 完全向下兼容。
 - v1.7 新增（协议级）：steps 元素新增 `alternatives`（候选方案数组）与 `importance`（high / medium / low 步骤权重）、planning 双向探讨、5 段式打包模板、artifacts 前置校验（详见 3.15）；与 v1.5 / v1.6 完全向下兼容。
@@ -343,9 +343,26 @@ v1.8 在 v1.7 多方案比较与步骤权重之上引入**混合模式**：`impo
 6. 悬空依赖校验：`restructure` 服务端校验所有 `depends_on` 引用，指向已删除步骤时返回 **400**（拒绝本次重构）。
 7. `reviewedBy` 清空：步骤被打回（单步打回、自动审核打回、批量连带打回）时清空 `reviewedBy`（置 `null`），重新审核通过后再记录审核来源。
 
+### 3.17 自动迭代与全角色降级（v1.9）
+
+**3.17.1 AutoIteration 自动迭代**
+
+- 用户首次 prompt 可声明 `{"iterations": N, "finalAcceptance": "<验收标准>", "autoDecision": true}`（缺省 `iterations=1` 即现行单轮模式，向后兼容；`N` 限 1-10）。
+- 每版循环 Vn（自动）：外部 AI 评审 V(n-1) 的产出与审核反馈 → 输出 Vn 修正 Step List（importance 分工）→ 主 agent 源码层实施 + 验证 + commit + tag → 轨迹沉淀。
+- **版间门**：仅当 Vn 全部 approved 才进入 Vn+1；达到 `iterations` 上限后收口 done 并唤醒用户最终验收（重启 + 端到端实测）。
+- **熔断兜底**：任一步骤连续打回 ≥3 次 → 任务自动 `paused`（stopReason 记录原因）并唤醒用户介入，不无限重试。
+- 状态字段：`iterations` / `currentIteration` / `finalAcceptance` / `autoDecision` / `rejectStreak`（steps.json）。
+
+**3.17.2 全角色降级链（external → dialog → pause）**
+
+- 所有外部 AI 调用统一降级策略：`external(Gemini) → dialog(内部对话模型，无工具) → 失败报错由用户介入(pause)`。
+- 覆盖：`/ask`（方案生成/评审/代决策，v1.9 补齐）与 `/steps/auto-review`（审核，v1.5 起已有）。
+- 降级标注：`providerLabel` 显示「对话模型（降级）」、record `channel=dialog-fallback`、`reviewedBy=dialog`，审计可溯源。
+- 质量约束：dialog 仅兜底不默认（无工具、指令遵循弱于 Gemini；复杂规划质量下降可接受，主要保流水线不因限流卡死）。
+
 ---
 
-## 4. 实际实现（1.2.1）
+## 4. 实际实现（1.3.0）
 
 > 以下内容来自当前安装源码。
 
@@ -359,7 +376,7 @@ C:\Users\Administrator\.dsh\profiles\web\node_modules\dsh-web-relay
 
 | 文件 | 作用 |
 |---|---|
-| `package.json` | 插件元数据，version 1.2.1 |
+| `package.json` | 插件元数据，version 1.3.0 |
 | `lib/index.js` | 后端：协议常量、路由、Step List 状态机（含 v1.6 依赖门控与并发调度、v1.8 混合模式与 restructure）、trace 读写 |
 | `lib/client.js` | 前端：面板、Step List UI、审核操作、语言设置/i18n |
 | `cordis.patch.yml` | 插件装配声明 |
@@ -489,11 +506,22 @@ v1.2.1 在 v1.2.0 之上新增（经三方协作双视角评估与外部 AI 评�
 
 > 实测（expr-2026-08-26_14-16-21 Step 2）：悬空依赖返回 HTTP 400 + `dangling` 明细 ✓；`reject` 后 `reviewedBy=null` ✓；`review:false` + `importance:low` 自动 `approved` + `reviewedBy=mainagent` ✓。
 
+### 4.12 v1.3.0 升级内容（协议 v1.9）
+
+v1.3.0 在 v1.2.1 之上新增（外部 AI 双视角评估批准：草案一 AutoIteration + 草案二全角色降级链，详见 3.17）：
+
+- **A1 AutoIteration 自动迭代**：`{"iterations":N,"finalAcceptance":"...","autoDecision":true}` 声明解析（N 限 1-10）、迭代字段落盘、**版间门**（Vn 全 approved 才进 Vn+1，currentIteration 递增）、**连续打回 ≥3 熔断**（status=paused + 唤醒用户）、达上限收口 done
+- **A2 全角色降级链**：`/ask` 入口 external(Gemini)→dialog(callDialogModel)→pause（原仅审核有降级，v1.9 补齐方案/评审/代决策环节）；降级标注 `providerLabel='对话模型（降级）'` + `channel=dialog-fallback`
+- **A3 协议暴露**：`WEB_RELAY_PROTOCOL_VERSION_V19`、`protocolV19` payload（context/protocol 端点）、协议/Skill 中英 v1.9 条目、前端协议选择器 v1.9 选项与 directive、5 段模板注入扩至 v1.9
+- **A4 版本**：插件 1.3.0（协议 v1.9 对应）；`/status` version 1.3.0
+
+> 验证（expr-2026-08-26_14-48-26）：降级链静态 6 标记 + 判定 5 用例；AutoIteration 声明解析 5 用例 + 熔断 + 版间门；8 组回归全 PASS（v1.8/v1.8.1 基线未破坏）。
+
 ---
 
 ## 5. 使用方法
 
-> 本章基于 dsh-web-relay 1.2.1 实际功能编写。
+> 本章基于 dsh-web-relay 1.3.0 实际功能编写。
 
 ### 5.0 环境配置
 
@@ -630,6 +658,7 @@ dsh web
 | v1.6 DAG 并发 | 依赖门控 + 多步并行 | 大型重构、多模块/多文件解耦 |
 | v1.7 增强 | 在 v1.5 / v1.6 之上叠加 alternatives / importance / 双向探讨 | 方案分歧大、步骤多需合并审核 |
 | v1.8 混合模式 | 在 v1.6 / v1.7 之上叠加 importance 驱动分工（low 免审 / medium 批量轻审 / high 三方严格审）+ `review:false` 硬开关 | 日常开发默认（降本主线，混合 40% 为主形态） |
+| v1.9 自动迭代 | 在 v1.8 之上叠加 `{"iterations":N}` 多版本自动演进（版间门 + 连续打回熔断）+ 全角色降级链（external→dialog→pause） | 首次任务自动迭代 N 版，用户最终验收（降本+免盯盘） |
 
 ### 5.12 批量自动审核（v1.7）
 
@@ -748,7 +777,7 @@ dsh web
 
 ## 6. 开发者扩展
 
-> 本章属于开发者扩展指南，基于当前 1.2.1 实际实现；协议规范以第 3 章为准（v1.3 起，含 v1.5 / v1.6 / v1.7 / v1.8）。
+> 本章属于开发者扩展指南，基于当前 1.3.0 实际实现；协议规范以第 3 章为准（v1.3 起，含 v1.5 / v1.6 / v1.7 / v1.8 / v1.9）。
 
 ### 6.1 扩展总览
 
@@ -865,7 +894,7 @@ web-relay/traces/expr-<ts>.md
 
 ### 6.7 自动审核
 
-当前 1.2.1 已提供自动审核接口：
+当前 1.3.0 已提供自动审核接口：
 
 ```text
 POST /dsh-web-relay/steps/auto-review
@@ -935,7 +964,7 @@ body { workspacePath, exprId, stepId?, sessionId? }
 
 ## 9. 结论
 
-dsh-web-relay 1.2.1 已实现：
+dsh-web-relay 1.3.0 已实现：
 
 - v1.8 协议（v1.3 Step List 基础 + v1.4 Planning + v1.5 审核降级链 + v1.6 Step List 并发调度 + v1.7 多方案比较与步骤权重 + v1.8 混合模式分工）
 - v1.5 线性为默认、v1.6 / v1.7 / v1.8 均继承并发调度，多版本向后兼容
