@@ -263,7 +263,12 @@ window.__ModuleLoader__.load({
 
       const refresh = () => setReloadTick((t) => t + 1)
       const toggleWs = (dir) => setExpandedWs((p) => ({ ...p, [dir]: !p[dir] }))
-      const pickSession = (wsDir, sessionDir) => setSelected({ wsDir, sessionDir })
+      // v0.4.0 V2: 切换会话时清理 turn 展开/详情状态，防串数据
+      const pickSession = (wsDir, sessionDir) => {
+        setSelected({ wsDir, sessionDir })
+        setExpandedTurns({})
+        setDetails({})
+      }
 
       // 展开/收起 Turn 卡片并惰性加载 step-details
       const turnKey = (t) => (t.turn != null ? t.turn : '?') + ':' + (t.step != null ? t.step : '?')
@@ -324,14 +329,16 @@ window.__ModuleLoader__.load({
             const share = summary.totalCostUSD > 0 ? (v.costUSD / summary.totalCostUSD) * 100 : 0
             return h('div', { key: m, style: { marginTop: 5 } },
               h('div', { style: { display: 'flex', justifyContent: 'space-between', gap: 6, fontSize: 11 } },
-                h('span', { style: { fontWeight: 600, wordBreak: 'break-all', flex: 1 } }, m),
+                h('span', {
+                  style: { fontWeight: 600, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', wordBreak: 'break-all', title: m }
+                }, m),
                 h('span', { style: { color: '#4ade80', fontWeight: 700, whiteSpace: 'nowrap' } },
                   '$' + fmtUSD(v.costUSD) + ' · ' + share.toFixed(1) + '%')
               ),
               h('div', { style: { fontSize: 10, color: 'var(--dsw-alias-label-secondary, #a1a1aa)', marginTop: 1 } },
                 T.turnCount + ': ' + fmtInt(v.turns) + ' · ' + T.perTurnAvg + ': $' + fmtUSD(v.costUSD / (v.turns || 1))),
               h('div', { style: { marginTop: 3, height: 4, borderRadius: 2, background: 'rgba(255,255,255,.08)' } },
-                h('div', { style: { height: 4, borderRadius: 2, background: '#3b82f6', width: Math.min(100, share) + '%' } })
+                share > 0 && h('div', { style: { height: 4, borderRadius: 2, background: '#3b82f6', width: Math.max(2, Math.min(100, share)) + '%' } })
               )
             )
           })
