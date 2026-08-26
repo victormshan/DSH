@@ -22,6 +22,7 @@
 import os from 'node:os'
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { Worker } from 'node:worker_threads'
 import { zstdDecompressSync } from 'node:zlib'
 
 export const name = 'step-value'
@@ -222,8 +223,8 @@ export async function parseSessionLog(filePath, limits = {}) {
       result.scanned.truncated = true
       break
     }
-    // 每 500 帧让出一次事件循环，避免解析大日志时阻塞整个 Node 进程
-    if (f > 0 && f % 500 === 0) await new Promise((r) => setImmediate(r))
+    // v0.3.0 V2：每 5000 帧让出一次（原 500 帧的调度开销在并行解析下显著拖慢首载；5000 帧仍保证事件循环不被长期独占）
+    if (f > 0 && f % 5000 === 0) await new Promise((r) => setImmediate(r))
     const start = offsets[f]
     const end = f + 1 < offsets.length ? offsets[f + 1] : buf.length
     let dec
@@ -273,8 +274,67 @@ export async function parseSessionLog(filePath, limits = {}) {
 
 const parseCache = new Map() // logPath -> { ts, sig, result }
 
-/** 带 TTL + 文件 mtime/size 校验的缓存解析（内存 + 磁盘持久化两级）。 */
-async function cachedParse(logPath) {
+// v0.3.0 V2：Worker 线程池并行解析（eval worker 通过 import() 复用本模块 parseSessionLog，多核真并行）。
+// worker 数量 = CPU 核数 - 1（下限 1）；文件数 ≤2 时直接主线程解析（worker 开销大于收益）。
+const CPU_WORKERS = Math.max(1, (os.cpus()?.length || 4) - 1)
+const WORKER_CODE = `
+const { parentPort, workerData } = require('node:worker_threads')
+;(async () => {
+  let mod
+  try { mod = await import(workerData.moduleUrl) } catch (e) {
+    parentPort.postMessage({ ok: false, filePath: '', error: 'import failed: ' + (e && e.message) })
+    return
+  }
+  parentPort.on('message', async (msg) => {
+    try {
+      const result = await mod.parseSessionLog(msg.filePath, msg.limits || {})
+      parentPort.postMessage({ ok: true, filePath: msg.filePath, result })
+    } catch (e) {
+      parentPort.postMessage({ ok: false, filePath: msg.filePath, error: String((e && e.message) || e) })
+    }
+  })
+})()
+`
+
+/** 批量解析文件（worker 池并行；文件少时主线程直接解析）。返回 Map<filePath, result>。 */
+export async function parseBatch(fileList) {
+  const results = new Map()
+  const jobs = fileList.filter((f) => f && f.path)
+  if (jobs.length === 0) return results
+  if (jobs.length <= 2 || CPU_WORKERS <= 1) {
+    for (const j of jobs) {
+      try {
+        const r = await parseSessionLog(j.path, j.limits || {})
+        if (r) results.set(j.path, r)
+      } catch { /* 单文件失败跳过 */ }
+    }
+    return results
+  }
+  const queue = jobs.slice()
+  const n = Math.min(CPU_WORKERS, queue.length)
+  await Promise.all(Array.from({ length: n }, () => new Promise((resolve) => {
+    const worker = new Worker(WORKER_CODE, {
+      eval: true,
+      workerData: { moduleUrl: import.meta.url }
+    })
+    const next = () => {
+      const job = queue.shift()
+      if (job) worker.postMessage({ filePath: job.path, limits: job.limits || {} })
+      else { worker.terminate(); resolve() }
+    }
+    worker.on('message', (msg) => {
+      if (msg && msg.ok && msg.filePath) results.set(msg.filePath, msg.result)
+      next()
+    })
+    worker.on('error', () => next())
+    worker.on('exit', () => resolve())
+    next()
+  })))
+  return results
+}
+
+/** 读取缓存（内存 + 磁盘），返回 { sig, result } 或 null。 */
+function readParsedFromCache(logPath) {
   let sig = ''
   try {
     const st = statSync(logPath)
@@ -282,36 +342,42 @@ async function cachedParse(logPath) {
   } catch {
     return null
   }
-  // 1) 内存缓存（最快路径）
   const hit = parseCache.get(logPath)
-  if (hit && hit.sig === sig && Date.now() - hit.ts < CACHE_TTL_MS) return hit.result
-  // 2) 磁盘持久化缓存（v0.2.0 V1）：重启不失效；sig 匹配直接读，跳过 zstd 解压
+  if (hit && hit.sig === sig && Date.now() - hit.ts < CACHE_TTL_MS) return { sig, result: hit.result }
   const diskPath = join(DISK_CACHE_DIR, encodeURIComponent(logPath) + '.json')
   if (existsSync(diskPath)) {
     try {
       const disk = JSON.parse(readFileSync(diskPath, 'utf8'))
       if (disk && disk.sig === sig && disk.result) {
         parseCache.set(logPath, { ts: Date.now(), sig, result: disk.result })
-        return disk.result
+        return { sig, result: disk.result }
       }
-    } catch {
-      /* 损坏缓存：忽略，走全量解析 */
-    }
+    } catch { /* 损坏缓存忽略 */ }
   }
-  // 3) 全量解析 → 回填内存 + 落盘
-  const result = await parseSessionLog(logPath)
+  return { sig, result: null }
+}
+
+/** 写入缓存（内存 + 磁盘，失败不阻断）。 */
+function writeParsedToCache(logPath, sig, result) {
   parseCache.set(logPath, { ts: Date.now(), sig, result })
   try {
     mkdirSync(DISK_CACHE_DIR, { recursive: true })
-    writeFileSync(diskPath, JSON.stringify({ sig, parsedAt: Date.now(), result }), 'utf8')
-  } catch {
-    /* 缓存写失败不阻断解析 */
-  }
+    writeFileSync(join(DISK_CACHE_DIR, encodeURIComponent(logPath) + '.json'), JSON.stringify({ sig, parsedAt: Date.now(), result }), 'utf8')
+  } catch { /* 缓存写失败不阻断 */ }
   if (parseCache.size > 500) {
     for (const [k, v] of parseCache) {
       if (Date.now() - v.ts >= CACHE_TTL_MS) parseCache.delete(k)
     }
   }
+}
+
+/** 带 TTL + 文件 mtime/size 校验的缓存解析（内存 + 磁盘持久化两级；供单文件路径 findTurn 使用）。 */
+async function cachedParse(logPath) {
+  const c = readParsedFromCache(logPath)
+  if (!c) return null
+  if (c.result) return c.result
+  const result = await parseSessionLog(logPath)
+  writeParsedToCache(logPath, c.sig, result)
   return result
 }
 
@@ -350,41 +416,43 @@ function buildSession(dirName, parsed) {
   }
 }
 
-/** 收集一个工作区目录下的全部会话（解压/解析失败的会话自动跳过）。 */
+/** 收集一个工作区目录下的全部会话（v0.3.0 V2：磁盘缓存命中跳过解析；解析走串行 cachedParse——Worker 池实测更慢，见 verify-v2-perf 记录）。 */
 async function collectSessions(wsDir) {
-  const out = []
   let entries = []
   try {
     entries = readdirSync(wsDir, { withFileTypes: true }).filter((d) => d.isDirectory())
   } catch {
-    return out
+    return []
   }
+  const out = []
   for (const e of entries) {
     const log = logPathFor(join(wsDir, e.name))
     if (!log) continue
     const parsed = await cachedParse(log.path)
-    if (!parsed) continue
-    out.push(buildSession(e.name, parsed))
+    if (parsed) out.push(buildSession(e.name, parsed))
   }
   out.sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0))
   return out
 }
 
-/** 收集全部工作区 → 会话 → Turn（summary 与 tree 共用）。 */
+/** 收集全部工作区 → 会话 → Turn（v0.3.0 V2：工作区级并行）。 */
 export async function collectWorkspaces(root = SESSIONS_ROOT) {
-  const workspaces = []
   let entries = []
   try {
     entries = readdirSync(root, { withFileTypes: true }).filter((d) => d.isDirectory())
   } catch {
-    return workspaces
+    return []
   }
-  for (const e of entries) {
-    if (e.name === '_no-cwd') continue
+  const jobs = entries.map(async (e) => {
+    if (e.name === '_no-cwd') return null
     const sessions = await collectSessions(join(root, e.name))
-    if (sessions.length === 0) continue // 无任何可解析会话的工作区不进面板
-    workspaces.push({ dir: e.name, path: decodeWorkspaceDir(e.name), sessions })
-  }
+    if (sessions.length === 0) return null
+    return { dir: e.name, path: decodeWorkspaceDir(e.name), sessions }
+  })
+  const settled = await Promise.allSettled(jobs)
+  const workspaces = settled
+    .filter((r) => r.status === 'fulfilled' && r.value)
+    .map((r) => r.value)
   workspaces.sort((a, b) => a.dir.localeCompare(b.dir))
   return workspaces
 }

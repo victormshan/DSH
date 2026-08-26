@@ -526,29 +526,57 @@ export function apply(ctx) {
 
   // 对话模型（无工具）审核：跟随主会话路由（llm 服务），纯文本输出，不调用任何工具。
   // 任何异常均返回 { ok:false }，由调用方继续降级到手动审核。
+  // v1.9 V2 修复：① 递归提取 chunk 文本（适配各种 stream 返回结构）② provider 容错重试
+  // （先按显式 provider，空响应或无 provider 时回落 llm 默认路由）。
+  function extractChunkText(chunk) {
+    if (chunk == null) return ''
+    if (typeof chunk === 'string') return chunk
+    const direct =
+      chunk?.text ?? chunk?.delta?.text ?? chunk?.delta ?? chunk?.content ??
+      chunk?.message?.content ?? chunk?.message?.text ?? chunk?.choices?.[0]?.delta?.content ?? chunk?.choices?.[0]?.message?.content
+    if (typeof direct === 'string' && direct) return direct
+    const parts = []
+    const walk = (v, depth) => {
+      if (depth > 6 || parts.length > 40) return
+      if (typeof v === 'string' && v.trim()) { parts.push(v); return }
+      if (Array.isArray(v)) { for (const x of v) walk(x, depth + 1); return }
+      if (v && typeof v === 'object') {
+        for (const k of Object.keys(v)) {
+          if (k === 'type' || k === 'role' || k === 'id' || k === 'index' || k === 'finishReason' || k === 'finish_reason') continue
+          walk(v[k], depth + 1)
+        }
+      }
+    }
+    walk(chunk, 0)
+    return parts.join('')
+  }
   async function callDialogModel(prompt) {
     if (!llm) return { ok: false, error: 'llm 服务不可用' }
-    try {
-      const chunks = []
-      const stream = llm.stream({
-        provider: 'deepseek-official',
-        messages: [{ role: 'user', content: prompt }],
-        tools: [],
-        stream: false,
-        signal: AbortSignal.timeout(60000)
-      })
-      for await (const chunk of stream) {
-        if (chunk && chunk.type === 'error') return { ok: false, error: String(chunk.error || 'llm error') }
-        if (chunk && chunk.type === 'aborted') return { ok: false, error: 'llm aborted' }
-        const text = chunk?.text ?? chunk?.delta?.text ?? chunk?.delta ?? chunk?.content ?? chunk?.message?.content ?? ''
-        if (typeof text === 'string' && text) chunks.push(text)
-      }
-      const text = chunks.join('')
-      if (!text) return { ok: false, error: '对话模型返回空' }
-      return { ok: true, text }
-    } catch (e) {
-      return { ok: false, error: e?.message || String(e) }
+    const baseOpts = {
+      messages: [{ role: 'user', content: prompt }],
+      tools: [],
+      stream: false,
+      signal: AbortSignal.timeout(60000)
     }
+    // 尝试顺序：显式 provider → llm 默认路由（不带 provider）
+    const attempts = [{ provider: 'deepseek-official' }, {}]
+    for (const extra of attempts) {
+      try {
+        const chunks = []
+        const stream = llm.stream({ ...baseOpts, ...extra })
+        for await (const chunk of stream) {
+          if (chunk && chunk.type === 'error') return { ok: false, error: String(chunk.error || 'llm error') }
+          if (chunk && chunk.type === 'aborted') return { ok: false, error: 'llm aborted' }
+          const text = extractChunkText(chunk)
+          if (text) chunks.push(text)
+        }
+        const text = chunks.join('').trim()
+        if (text) return { ok: true, text }
+      } catch (e) {
+        if (attempts.indexOf(extra) === attempts.length - 1) return { ok: false, error: e?.message || String(e) }
+      }
+    }
+    return { ok: false, error: '对话模型返回空' }
   }
 
   // 解析审核回复为 { result, reason }
