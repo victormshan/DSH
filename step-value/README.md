@@ -6,9 +6,15 @@ DeepSeek Harness API 费用 / Token 用量看板插件（cordis 静态插件）�
 
 | 路由 | 说明 |
 |---|---|
-| `GET /step-value/summary` | 所有工作区汇总（turns / tokens / costUSD / costCNY / **perModel** / **avgCostPerTurn**） |
+| `GET /step-value/summary` | 所有工作区汇总（turns / tokens / costUSD / costCNY / **perModel** / **avgCostPerTurn** / **stats**） |
 | `GET /step-value/tree` | Workspace → Session → Turn 树 |
 | `GET /step-value/step-details?workspace=&session=&turn=&step=` | 单个 Turn 明细（含原始 usage / source） |
+
+## 前端看板（v0.4.0）
+
+- **多模型费用下钻**：总开销卡片下「按模型」区——每模型一行（模型名 / 调用次数 / 均摊单次 / 费用占比 + 占比条），数据源 `summary.perModel`
+- **缓存与性能指标**：面板底部展示「磁盘缓存 N · 缓存命中 N · 最近解析 Xms」（数据源 `summary.stats`：`diskHits` / `parses` / `lastParseMs` / `cacheEntries`）
+- 总览卡片含 `avgCostPerTurn` 均摊单次费用；i18n 中英 35 键对称（`localStorage 'step-value:locale'` 持久化）
 
 ## 解析机制
 
@@ -38,6 +44,7 @@ DeepSeek Harness API 费用 / Token 用量看板插件（cordis 静态插件）�
 
 | 版本 | 内容 |
 |---|---|
+| 0.4.0 | 前端 V1+V2+V3：多模型费用下钻（perModel 占比条）、缓存/性能指标（stats）、i18n 35 键、UI 边界防护与状态清理、正式发布（替代 v0.4.0-v* 预发布） |
 | 0.3.0 | V3 终态：端到端验收 + 文档 + 正式发布（替代 v0.2.0-v* 预发布） |
 | 0.2.0 | V1+V2：持久化磁盘缓存、MODEL_PRICES 扩充、summary perModel/avgCostPerTurn、缓存层重构、性能实测 |
 | 0.1.0 | 初始版：zstd 解析 + Workspace→Session→Turn 费用树 |
