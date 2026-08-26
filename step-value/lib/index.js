@@ -20,7 +20,7 @@
 // ===========================================================================
 
 import os from 'node:os'
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { zstdDecompressSync } from 'node:zlib'
 
@@ -40,6 +40,13 @@ export const MODEL_PRICES = {
   'deepseek-v4-flash': { input: 0.00027, output: 0.0011, cacheRead: 0.00007, reasoning: 0.00055 },
   'deepseek-chat': { input: 0.00027, output: 0.0011, cacheRead: 0.00007, reasoning: 0.00055 },
   'deepseek-reasoner': { input: 0.00055, output: 0.00219, cacheRead: 0.00014, reasoning: 0.00055 },
+  // v0.2.0 V1 扩充：主流第三方模型（官方参考定价）
+  'claude-3-5-sonnet': { input: 0.003, output: 0.015, cacheRead: 0.0003, reasoning: 0 },
+  'claude-3-7-sonnet': { input: 0.003, output: 0.015, cacheRead: 0.0003, reasoning: 0 },
+  'gemini-2.0-flash': { input: 0.0001, output: 0.0004, cacheRead: 0.000025, reasoning: 0 },
+  'gemini-1.5-pro': { input: 0.00125, output: 0.005, cacheRead: 0.00031, reasoning: 0 },
+  'gpt-4o': { input: 0.0025, output: 0.01, cacheRead: 0.00125, reasoning: 0 },
+  'gpt-4o-mini': { input: 0.00015, output: 0.0006, cacheRead: 0.000075, reasoning: 0 },
   _default: { input: 0.00027, output: 0.0011, cacheRead: 0.00007, reasoning: 0.00055 }
 }
 
@@ -60,6 +67,15 @@ export const SCAN_MAX_BYTES = 64 * 1024 * 1024
 
 /** 模块级解析缓存 TTL（毫秒）。 */
 export const CACHE_TTL_MS = 60_000
+
+/**
+ * 持久化缓存目录（v0.2.0 V1：Disk-backed Incremental Cache）。
+ * 默认 ~/.dsh/step-value-cache，可用环境变量 DSH_STEPVALUE_CACHE_DIR 覆盖；
+ * 缓存文件按 <encodeURIComponent(logPath)>.json 命名，内容 { sig, parsedAt, result }。
+ * sig = <mtimeMs>:<size>，文件未变动时直接读磁盘缓存，跳过 zstd 解压 + JSONL 解析，
+ * 从而跨 dsh web 重启保持解析结果，消除冷启动全量重解析（>10s）问题。
+ */
+export const DISK_CACHE_DIR = process.env.DSH_STEPVALUE_CACHE_DIR || join(os.homedir(), '.dsh', 'step-value-cache')
 
 // ---------------------------------------------------------------------------
 // HTTP 辅助
@@ -257,7 +273,7 @@ export async function parseSessionLog(filePath, limits = {}) {
 
 const parseCache = new Map() // logPath -> { ts, sig, result }
 
-/** 带 TTL + 文件 mtime/size 校验的缓存解析。 */
+/** 带 TTL + 文件 mtime/size 校验的缓存解析（内存 + 磁盘持久化两级）。 */
 async function cachedParse(logPath) {
   let sig = ''
   try {
@@ -266,10 +282,31 @@ async function cachedParse(logPath) {
   } catch {
     return null
   }
+  // 1) 内存缓存（最快路径）
   const hit = parseCache.get(logPath)
   if (hit && hit.sig === sig && Date.now() - hit.ts < CACHE_TTL_MS) return hit.result
+  // 2) 磁盘持久化缓存（v0.2.0 V1）：重启不失效；sig 匹配直接读，跳过 zstd 解压
+  const diskPath = join(DISK_CACHE_DIR, encodeURIComponent(logPath) + '.json')
+  if (existsSync(diskPath)) {
+    try {
+      const disk = JSON.parse(readFileSync(diskPath, 'utf8'))
+      if (disk && disk.sig === sig && disk.result) {
+        parseCache.set(logPath, { ts: Date.now(), sig, result: disk.result })
+        return disk.result
+      }
+    } catch {
+      /* 损坏缓存：忽略，走全量解析 */
+    }
+  }
+  // 3) 全量解析 → 回填内存 + 落盘
   const result = await parseSessionLog(logPath)
   parseCache.set(logPath, { ts: Date.now(), sig, result })
+  try {
+    mkdirSync(DISK_CACHE_DIR, { recursive: true })
+    writeFileSync(diskPath, JSON.stringify({ sig, parsedAt: Date.now(), result }), 'utf8')
+  } catch {
+    /* 缓存写失败不阻断解析 */
+  }
   if (parseCache.size > 500) {
     for (const [k, v] of parseCache) {
       if (Date.now() - v.ts >= CACHE_TTL_MS) parseCache.delete(k)
@@ -354,28 +391,51 @@ export async function collectWorkspaces(root = SESSIONS_ROOT) {
 
 const iso = (ms) => (ms ? new Date(ms).toISOString() : null)
 
-/** summary 负载：所有工作区汇总。 */
+/** summary 负载：所有工作区汇总（v0.2.0 V1：增加 perModel 聚合与均摊单 turn 费用）。 */
 export async function buildSummary(root = SESSIONS_ROOT) {
   const workspaces = await collectWorkspaces(root)
   const totalTokens = { input: 0, output: 0, cacheRead: 0, reasoning: 0, total: 0 }
   let totalTurns = 0
   let totalCostUSD = 0
   let totalCostCNY = 0
+  const totalPerModel = {} // model -> { turns, input, output, cacheRead, reasoning, costUSD }
   const wsOut = []
   for (const ws of workspaces) {
     let turns = 0
     let costUSD = 0
     let costCNY = 0
+    const perModel = {}
     for (const s of ws.sessions) {
       turns += s.turns
       costUSD += s.costUSD
       costCNY += s.costCNY
       for (const k of ['input', 'output', 'cacheRead', 'reasoning', 'total']) totalTokens[k] += s.tokens[k]
+      for (const t of s.turnsList) {
+        const m = t.model || 'unknown'
+        const acc = perModel[m] || (perModel[m] = { turns: 0, input: 0, output: 0, cacheRead: 0, reasoning: 0, costUSD: 0 })
+        const g = totalPerModel[m] || (totalPerModel[m] = { turns: 0, input: 0, output: 0, cacheRead: 0, reasoning: 0, costUSD: 0 })
+        acc.turns += 1
+        acc.input += t.tokens.input
+        acc.output += t.tokens.output
+        acc.cacheRead += t.tokens.cacheRead
+        acc.reasoning += t.tokens.reasoning
+        acc.costUSD += t.costUSD
+        g.turns += 1
+        g.input += t.tokens.input
+        g.output += t.tokens.output
+        g.cacheRead += t.tokens.cacheRead
+        g.reasoning += t.tokens.reasoning
+        g.costUSD += t.costUSD
+      }
     }
     totalTurns += turns
     totalCostUSD += costUSD
     totalCostCNY += costCNY
-    wsOut.push({ path: ws.path, dir: ws.dir, sessions: ws.sessions.length, turns, costUSD: round6(costUSD), costCNY: round6(costCNY) })
+    wsOut.push({
+      path: ws.path, dir: ws.dir, sessions: ws.sessions.length, turns,
+      costUSD: round6(costUSD), costCNY: round6(costCNY),
+      perModel: Object.fromEntries(Object.entries(perModel).map(([m, v]) => [m, { ...v, costUSD: round6(v.costUSD) }]))
+    })
   }
   return {
     generatedAt: new Date().toISOString(),
@@ -383,6 +443,8 @@ export async function buildSummary(root = SESSIONS_ROOT) {
     totalTokens,
     totalCostUSD: round6(totalCostUSD),
     totalCostCNY: round6(totalCostCNY),
+    avgCostPerTurn: totalTurns > 0 ? round6(totalCostUSD / totalTurns) : 0,
+    perModel: Object.fromEntries(Object.entries(totalPerModel).map(([m, v]) => [m, { ...v, costUSD: round6(v.costUSD) }])),
     workspaces: wsOut
   }
 }
