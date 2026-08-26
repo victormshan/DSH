@@ -1,6 +1,6 @@
 {
   "name": "step-value",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "API cost & token usage dashboard for DeepSeek Harness: parse session.jsonl.zstd usage (input/output/cacheRead/reasoning) + model metadata, build Workspace → Session → Turn cost tree with model rate pricing (USD + CNY).",
   "private": true,
   "type": "module",
