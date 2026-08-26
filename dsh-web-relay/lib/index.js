@@ -1181,7 +1181,7 @@ export function apply(ctx) {
       ok: true,
       geminiConfigured: Boolean(GEMINI_KEY),
       model: GEMINI_MODEL,
-      version: '1.2.0',
+      version: '1.2.1',
       shellAvailable: Boolean(shell),
       apiProxyAvailable: Boolean(apiProxy),
       uptime: Math.round(process.uptime()),

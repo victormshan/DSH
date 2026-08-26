@@ -1,6 +1,6 @@
 # dsh-web-relay 说明书
 
-> 适用版本：dsh-web-relay 1.2.0  
+> 适用版本：dsh-web-relay 1.2.1  
 > 协议版本：v1.8（向下兼容 v1.5 / v1.6 / v1.7；v1.5 线性为默认，v1.6 / v1.7 / v1.8 均继承 DAG 并发调度）  
 > 文档性质：基于当前实际源码与任务记录整理
 
@@ -32,7 +32,7 @@ dsh-web-relay 是 dsh web profile 中的实验性插件，用于在 dsh 主 agen
 
 ## 3. 协议规范（v1.3 起，含 v1.5 / v1.6 / v1.7 / v1.8）
 
-> 本章是 **dsh-web-relay 三方协作协议 v1.3（延伸至 v1.5 审核降级链、v1.6 并发调度、v1.7 多方案比较与步骤权重、v1.8 混合模式分工）的正式规范文本**，属于协议层约定，独立于当前 1.2.0 具体实现。
+> 本章是 **dsh-web-relay 三方协作协议 v1.3（延伸至 v1.5 审核降级链、v1.6 并发调度、v1.7 多方案比较与步骤权重、v1.8 混合模式分工）的正式规范文本**，属于协议层约定，独立于当前 1.2.1 具体实现。
 
 ### 3.1 协议范围
 
@@ -345,7 +345,7 @@ v1.8 在 v1.7 多方案比较与步骤权重之上引入**混合模式**：`impo
 
 ---
 
-## 4. 实际实现（1.2.0）
+## 4. 实际实现（1.2.1）
 
 > 以下内容来自当前安装源码。
 
@@ -359,7 +359,7 @@ C:\Users\Administrator\.dsh\profiles\web\node_modules\dsh-web-relay
 
 | 文件 | 作用 |
 |---|---|
-| `package.json` | 插件元数据，version 1.2.0 |
+| `package.json` | 插件元数据，version 1.2.1 |
 | `lib/index.js` | 后端：协议常量、路由、Step List 状态机（含 v1.6 依赖门控与并发调度、v1.8 混合模式与 restructure）、trace 读写 |
 | `lib/client.js` | 前端：面板、Step List UI、审核操作、语言设置/i18n |
 | `cordis.patch.yml` | 插件装配声明 |
@@ -477,11 +477,23 @@ v1.2.0 在 v1.1.0 之上新增（协议升级至 v1.8 混合模式，详见 3.16
 
 > 降本主线：H1 的 `low` 免审正式化——每个 low 步骤省 1 次审核 turn；混合模式为未来主形态（纯三方 35% / 混合 40% / 纯独立 25%，详见 6.8）。
 
+### 4.11 v1.2.1 升级内容（V1.8.1 澄清）
+
+v1.2.1 在 v1.2.0 之上新增（经三方协作双视角评估与外部 AI 评审定案，协议版本保持 v1.8，语义澄清见 3.16.5）：
+
+- **V1 悬空依赖校验**：`POST /dsh-web-relay/steps/restructure` 在写盘前校验所有步骤 `depends_on` 引用，指向已删除步骤时返回 **400**（拒绝本次重构），防止拓扑悬空
+- **V2 打回清空 reviewedBy**：步骤被打回（单步 `action=reject`、自动审核打回、批量原子打回连带）时 `reviewedBy` 置 `null`；`approved` 保留审核来源，重新审核通过后再记录
+- **V3 协议/Skill 澄清**：`WEB_RELAY_PROTOCOL` 与 `WEB_RELAY_EXTERNAL_AI_SKILL`（中英）新增 v1.8.1 澄清条目（reviewSpecified 判定 / 安全护栏优先 / 打回副作用 / 重构作用域 / 拓扑继承 / 悬空校验 / reviewedBy 清空）
+- **V4 状态同步**：`/status` 的 `version` 字段同步为 `1.2.1`（此前硬编码 `1.2.0`）
+- **V5 文档**：README 与说明书版本号统一至 1.2.1；新增 `releases/v1.2.1/RELEASE_NOTES.md`
+
+> 实测（expr-2026-08-26_14-16-21 Step 2）：悬空依赖返回 HTTP 400 + `dangling` 明细 ✓；`reject` 后 `reviewedBy=null` ✓；`review:false` + `importance:low` 自动 `approved` + `reviewedBy=mainagent` ✓。
+
 ---
 
 ## 5. 使用方法
 
-> 本章基于 dsh-web-relay 1.2.0 实际功能编写。
+> 本章基于 dsh-web-relay 1.2.1 实际功能编写。
 
 ### 5.0 环境配置
 
@@ -736,7 +748,7 @@ dsh web
 
 ## 6. 开发者扩展
 
-> 本章属于开发者扩展指南，基于当前 1.2.0 实际实现；协议规范以第 3 章为准（v1.3 起，含 v1.5 / v1.6 / v1.7 / v1.8）。
+> 本章属于开发者扩展指南，基于当前 1.2.1 实际实现；协议规范以第 3 章为准（v1.3 起，含 v1.5 / v1.6 / v1.7 / v1.8）。
 
 ### 6.1 扩展总览
 
@@ -853,7 +865,7 @@ web-relay/traces/expr-<ts>.md
 
 ### 6.7 自动审核
 
-当前 1.2.0 已提供自动审核接口：
+当前 1.2.1 已提供自动审核接口：
 
 ```text
 POST /dsh-web-relay/steps/auto-review
@@ -923,7 +935,7 @@ body { workspacePath, exprId, stepId?, sessionId? }
 
 ## 9. 结论
 
-dsh-web-relay 1.2.0 已实现：
+dsh-web-relay 1.2.1 已实现：
 
 - v1.8 协议（v1.3 Step List 基础 + v1.4 Planning + v1.5 审核降级链 + v1.6 Step List 并发调度 + v1.7 多方案比较与步骤权重 + v1.8 混合模式分工）
 - v1.5 线性为默认、v1.6 / v1.7 / v1.8 均继承并发调度，多版本向后兼容
