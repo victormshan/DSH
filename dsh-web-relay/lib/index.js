@@ -19,7 +19,9 @@ export const name = 'dsh-web-relay'
 // apiProxy must be a HARD inject (like dsh-side-window): ctx.get('apiProxy')
 // returns undefined because the gateway registers later in composition order.
 // shell stays optional via ctx.get (fallback: run_cmd reports unavailable).
-export const inject = ['webServer', 'fs', 'sandboxPolicy', 'apiProxy']
+// v1.9 V2（dialog 修复）: agentDefaultModel 注入——callDialogModel 经 currentSelection()
+// 取 provider/model 对（dsh-llm 契约：provider/model 双字段路由），避免硬编码 provider 无 model。
+export const inject = ['webServer', 'fs', 'sandboxPolicy', 'apiProxy', 'agentDefaultModel']
 
 /**
  * Canonical three-party protocol for the web-relay context (v0.5). Single
@@ -481,6 +483,7 @@ export function apply(ctx) {
   const shell = ctx.get('shell')
   // llm is optional: dialog-model auto-review degrades to manual when unavailable.
   const llm = ctx.get('llm')
+  const agentDefaultModel = ctx.get('agentDefaultModel')   // v1.9 V2：dialog 修复——取 provider/model 对
 
   const baseOf = (workspacePath) =>
     (workspacePath && String(workspacePath).trim())
@@ -552,14 +555,30 @@ export function apply(ctx) {
   }
   async function callDialogModel(prompt) {
     if (!llm) return { ok: false, error: 'llm 服务不可用' }
+    // v1.9 V2（dialog 修复根因）：
+    // ① messages.content 用块数组格式 [{ type:'text', text }]（dsh-llm createUserMessage 契约，
+    //    字符串 content 与 adapter 的 blocks 处理不符 → 空响应）；
+    // ② provider/model 取自 agentDefaultModel.currentSelection()（dsh-llm 契约 provider/model 双字段路由），
+    //    回退 deepseek-official。
+    let sel = null
+    try {
+      sel = (agentDefaultModel && typeof agentDefaultModel.currentSelection === 'function')
+        ? agentDefaultModel.currentSelection()
+        : null
+    } catch { /* selection 读取失败走回退 */ }
+    const selProvider = sel && typeof sel.provider === 'string' && sel.provider ? sel.provider : null
+    const selModel = sel && typeof sel.model === 'string' && sel.model ? sel.model : null
+    const messages = [{ role: 'user', content: [{ type: 'text', text: prompt }] }]
     const baseOpts = {
-      messages: [{ role: 'user', content: prompt }],
+      messages,
       tools: [],
       stream: false,
       signal: AbortSignal.timeout(60000)
     }
-    // 尝试顺序：显式 provider → llm 默认路由（不带 provider）
-    const attempts = [{ provider: 'deepseek-official' }, {}]
+    // 尝试顺序：currentSelection provider/model → 显式 deepseek-official → llm 默认路由（不带 provider）
+    const attempts = []
+    if (selProvider) attempts.push({ provider: selProvider, ...(selModel ? { model: selModel } : {}) })
+    attempts.push({ provider: 'deepseek-official' }, {})
     for (const extra of attempts) {
       try {
         const chunks = []
