@@ -715,6 +715,22 @@ export function apply(ctx) {
     // v1.8: 统一并发语义判定——v1.6/v1.7/v1.8 继承 DAG 并发调度；v1.5 线性默认不变。
     const isConcurrent = (v) => v === 'v1.6' || v === 'v1.7' || v === 'v1.8'
 
+    // v1.9 AutoIteration：从 prompt/answer 文本解析自动迭代声明
+    // {"iterations": 3, "finalAcceptance": "<验收标准>", "autoDecision": true}
+    // 宽松匹配 JSON 片段；缺省 iterations=1（单轮，向后兼容）。
+    function extractAutoIterDecl(text) {
+      const src = String(text || '')
+      const decl = { iterations: 1, finalAcceptance: null, autoDecision: false }
+      const m = src.match(/\{\s*"iterations"\s*:\s*(\d+)\s*(?:,\s*"finalAcceptance"\s*:\s*"([^"]*)"\s*)?(?:,\s*"autoDecision"\s*:\s*(true|false)\s*)?\}/)
+      if (m) {
+        const n = parseInt(m[1], 10)
+        if (Number.isInteger(n) && n >= 1 && n <= 10) decl.iterations = n
+        if (m[2]) decl.finalAcceptance = m[2]
+        if (m[3]) decl.autoDecision = m[3] === 'true'
+      }
+      return decl
+    }
+
     // ---------- v1.3 Step List parsing / state ----------
     function normalizeStep(raw, index) {
       const id = raw && raw.id != null ? raw.id : raw && raw.stepId != null ? raw.stepId : (index + 1)
@@ -1012,9 +1028,9 @@ export function apply(ctx) {
         const target = await stepStateTarget(base, exprId)
         const text = await fs.readText(target)
         const data = JSON.parse(text)
-        if (data && Array.isArray(data.steps)) return { exprId, currentStep: data.currentStep || null, status: data.status || 'open', phase: data.phase || (data.steps.length ? 'executing' : 'planning'), architectNotes: data.architectNotes || null, contextRequests: Array.isArray(data.contextRequests) ? data.contextRequests : [], steps: data.steps, updatedAt: data.updatedAt, autoReview: data.autoReview === true, stopReason: data.stopReason || null, stoppedAt: data.stoppedAt || null, finalized: data.finalized === true, finalizedAt: data.finalizedAt || null, finalSummary: data.finalSummary || null, protocolVersion: data.protocolVersion || 'v1.5', activeSteps: Array.isArray(data.activeSteps) ? data.activeSteps : [] }
+        if (data && Array.isArray(data.steps)) return { exprId, currentStep: data.currentStep || null, status: data.status || 'open', phase: data.phase || (data.steps.length ? 'executing' : 'planning'), architectNotes: data.architectNotes || null, contextRequests: Array.isArray(data.contextRequests) ? data.contextRequests : [], steps: data.steps, updatedAt: data.updatedAt, autoReview: data.autoReview === true, stopReason: data.stopReason || null, stoppedAt: data.stoppedAt || null, finalized: data.finalized === true, finalizedAt: data.finalizedAt || null, finalSummary: data.finalSummary || null, protocolVersion: data.protocolVersion || 'v1.5', activeSteps: Array.isArray(data.activeSteps) ? data.activeSteps : [], iterations: data.iterations || 1, currentIteration: data.currentIteration || 1, finalAcceptance: data.finalAcceptance || null, autoDecision: data.autoDecision === true, rejectStreak: data.rejectStreak || 0 }
       } catch (err) { /* no state yet */ }
-      return { exprId, steps: [], currentStep: null, status: 'open', phase: 'planning', architectNotes: null, contextRequests: [], autoReview: false, stopReason: null, stoppedAt: null, finalized: false, finalizedAt: null, finalSummary: null, protocolVersion: 'v1.5', activeSteps: [] }
+      return { exprId, steps: [], currentStep: null, status: 'open', phase: 'planning', architectNotes: null, contextRequests: [], autoReview: false, stopReason: null, stoppedAt: null, finalized: false, finalizedAt: null, finalSummary: null, protocolVersion: 'v1.5', activeSteps: [], iterations: 1, currentIteration: 1, finalAcceptance: null, autoDecision: false, rejectStreak: 0 }
     }
 
     async function writeStepState(base, exprId, state, safePolicy) {
@@ -1206,12 +1222,12 @@ export function apply(ctx) {
     if (!provider) return json(res, 400, { ok: false, error: 'missing provider' })
 
     let providerLabel = provider
+    let askChannel = provider === 'gemini-free' ? 'gemini-free' : 'manual'   // v1.9：dialog 降级时标记 dialog-fallback
     let answer = ''
 
     try {
       if (provider === 'gemini-free') {
         providerLabel = 'Gemini Free API'
-        if (!GEMINI_KEY) return json(res, 400, { ok: false, error: 'GEMINI_API_KEY 未配置；设置环境变量后重启 dsh web 再试。' })
         if (!prompt) return json(res, 400, { ok: false, error: '缺少 prompt' })
         const guidedPrompt = [
           prompt,
@@ -1224,9 +1240,25 @@ export function apply(ctx) {
           '',
           WEB_RELAY_EXTERNAL_AI_SKILL
         ].join('\n')
-        const r = await callGemini(guidedPrompt)
+        // v1.9 全角色降级链（external → dialog → pause）：Gemini 无 key 或调用失败时
+        // 自动降级到内部对话模型（callDialogModel，无工具），仍失败才报错由用户介入。
+        let r = { ok: false, error: 'GEMINI_API_KEY 未配置' }
+        let degraded = false
+        if (GEMINI_KEY) {
+          r = await callGemini(guidedPrompt)
+          if (!r.ok) {
+            const d = await callDialogModel(guidedPrompt)
+            if (d.ok) { r = d; degraded = true }
+            else r = { ok: false, error: `Gemini 调用失败（${r.error}）；对话模型降级亦失败（${d.error}）` }
+          }
+        } else {
+          const d = await callDialogModel(guidedPrompt)
+          if (d.ok) { r = d; degraded = true }
+        }
         if (!r.ok) return json(res, 502, r)
         answer = r.text
+        if (degraded) providerLabel = '对话模型（降级）'
+        askChannel = degraded ? 'dialog-fallback' : 'gemini-free'
       } else if (provider === 'manual') {
         providerLabel = '手动粘贴'
         if (!pasted) return json(res, 400, { ok: false, error: 'manual 模式需要粘贴回答' })
@@ -1238,7 +1270,7 @@ export function apply(ctx) {
       const base = baseOf(workspacePath)
       const safePolicy = safePolicyFor(base)
       const { id, relPath, fileTarget } = await saveRecord({
-        base, safePolicy, prompt, answer, channel: provider === 'gemini-free' ? 'gemini-free' : 'manual',
+        base, safePolicy, prompt, answer, channel: askChannel,
         actions: [], results: [], selectedIndices: [], status: 'pending', intent: payload && payload.intent
       })
       // v0.5: seed the three-party trace (用户 prompt → 外部AI answer).
@@ -1605,7 +1637,9 @@ export function apply(ctx) {
         // v1.3: persist Step List state so the panel and main agent share progress.
         let stepState = null
         if (steps && steps.length > 0) {
-          try { stepState = await writeStepState(base, id, { exprId: id, steps, currentStep: null, status: 'open', autoReview: payload.autoReview === true, protocolVersion }, safePolicy) } catch (err) { stepState = null }
+          // v1.9 AutoIteration：从 prompt/answer 提取迭代声明（iterations/finalAcceptance/autoDecision）
+          const ai = extractAutoIterDecl(`${prompt}\n${text}`)
+          try { stepState = await writeStepState(base, id, { exprId: id, steps, currentStep: null, status: 'open', autoReview: payload.autoReview === true, protocolVersion, iterations: ai.iterations, currentIteration: 1, finalAcceptance: ai.finalAcceptance, autoDecision: ai.autoDecision, rejectStreak: 0 }, safePolicy) } catch (err) { stepState = null }
         }
 
       // v0.5: write the three-party trace (用户 prompt → 外部AI 回答 → 主 agent 唤醒消息).
@@ -1870,6 +1904,18 @@ export function apply(ctx) {
           return json(res, 400, { ok: false, error: `unknown action: ${action}（允许 start / complete / approve / reject / reopen / stop / resume / set_auto_review / set_phase）` })
         }
 
+        // v1.9 AutoIteration：手动打回同样计入 rejectStreak（approve 清零），≥3 次自动暂停
+        if (action === 'approve') {
+          state.rejectStreak = 0
+        } else if (action === 'reject') {
+          state.rejectStreak = (state.rejectStreak || 0) + 1
+          if (state.rejectStreak >= 3 && state.status !== 'stopped' && state.status !== 'paused') {
+            state.status = 'paused'
+            state.stopReason = '连续打回 ≥3 次，AutoIteration 自动暂停，等待用户介入'
+            state.stoppedAt = new Date().toISOString()
+          }
+        }
+
         if (state.steps.every((s) => s.status === 'approved')) state.status = 'done'
 
         step.notes = step.notes || []
@@ -2012,6 +2058,17 @@ export function apply(ctx) {
       step.reviewedBy = result === 'approved' ? reviewer : null
       // v1.0.1: 审核（通过/打回）后从 activeSteps 移除该步（v1.6 并行集合同步）
       state.activeSteps = (state.activeSteps || []).filter((x) => String(x) !== String(step.id))
+      // v1.9 AutoIteration：连续打回熔断——rejectStreak 递增（approve 清零），≥3 次自动暂停并唤醒用户
+      if (result === 'approved') {
+        state.rejectStreak = 0
+      } else {
+        state.rejectStreak = (state.rejectStreak || 0) + 1
+        if (state.rejectStreak >= 3 && state.status !== 'stopped') {
+          state.status = 'paused'
+          state.stopReason = '连续打回 ≥3 次，AutoIteration 自动暂停，等待用户介入'
+          state.stoppedAt = new Date().toISOString()
+        }
+      }
       if (state.steps.every((s) => s.status === 'approved')) state.status = 'done'
 
       step.notes = step.notes || []
@@ -2113,14 +2170,32 @@ export function apply(ctx) {
           }
           await appendTrace({ base, safePolicy, exprId, entries: [traceEntry('mainagent', handoffText)] }).catch(() => {})
         } else if (updated.status === 'done') {
-          handoffText = [
-            '【主 agent 请协助】dsh-web-relay 自动审核已完成全部步骤，请收口',
-            '',
-            `任务: ${exprId}`,
-            '全部 Step 已 approved，整体状态 done。',
-            '',
-            '请完成最终收口：确认 steps.json 与任务记录状态为 done，并将最终结论追加到三方轨迹。'
-          ].join('\n')
+          // v1.9 AutoIteration 版间门：迭代未满 → 自动推进 Vn+1（请外部 AI 评审上版输出修正 Step List），
+          // 达到 iterations 上限才收口 done。
+          if (updated.iterations > 1 && (updated.currentIteration || 1) < updated.iterations) {
+            const nextIter = (updated.currentIteration || 1) + 1
+            updated.currentIteration = nextIter
+            await writeStepState(base, exprId, updated, safePolicy).catch(() => {})   // 版间门：迭代计数落盘
+            handoffText = [
+              `【主 agent 请协助】dsh-web-relay 自动迭代 V${nextIter - 1} 全部 approved，进入 V${nextIter}`,
+              '',
+              `任务: ${exprId}`,
+              `迭代: V${nextIter}/${updated.iterations}（共 ${updated.iterations} 版）`,
+              `最终验收标准: ${updated.finalAcceptance || '(未声明)'}`,
+              '',
+              '请通过协议通道（/ask gemini-free）请外部 AI 评审 V' + (nextIter - 1) + ' 的产出与审核反馈，输出 V' + nextIter + ' 修正 Step List（importance 分工），然后按新 Step List 继续执行。'
+            ].join('\n')
+          } else {
+            handoffText = [
+              '【主 agent 请协助】dsh-web-relay 自动审核已完成全部步骤，请收口',
+              '',
+              `任务: ${exprId}`,
+              '全部 Step 已 approved，整体状态 done。',
+              ...(updated.iterations > 1 ? [`迭代: V${updated.currentIteration || 1}/${updated.iterations} 已完成，达到迭代上限`] : []),
+              '',
+              '请完成最终收口：确认 steps.json 与任务记录状态为 done，并将最终结论追加到三方轨迹。'
+            ].join('\n')
+          }
           if (sessionId) {
             wake = await wakeMainAgent({ sessionId, handoffText })
           }
