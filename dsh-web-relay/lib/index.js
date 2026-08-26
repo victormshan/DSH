@@ -1072,6 +1072,12 @@ export function apply(ctx) {
           finalSummary: state.finalSummary || null,
           steps: state.steps || [],
           protocolVersion: state.protocolVersion || 'v1.5',
+          // v1.9 AutoIteration：迭代字段必须随写盘持久化（否则版间门/熔断读不到声明）
+          iterations: state.iterations || 1,
+          currentIteration: state.currentIteration || 1,
+          finalAcceptance: state.finalAcceptance || null,
+          autoDecision: state.autoDecision === true,
+          rejectStreak: state.rejectStreak || 0,
         updatedAt: new Date().toISOString()
       }
       await fs.writeText(target, JSON.stringify(payload, null, 2), undefined, undefined, safePolicy)
