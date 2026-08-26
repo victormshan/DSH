@@ -59,7 +59,14 @@ window.__ModuleLoader__.load({
         updatedAt: '更新时间',
         expand: '展开',
         collapse: '收起',
-        usdPer1k: 'USD / 1K tokens'
+        usdPer1k: 'USD / 1K tokens',
+        // v0.4.0 V1: 多模型下钻 + 缓存/性能指标
+        byModel: '按模型',
+        modelShare: '费用占比',
+        perTurnAvg: '均摊单次',
+        cacheHits: '缓存命中',
+        parseMs: '最近解析',
+        cached: '磁盘缓存'
       },
       en: {
         pluginTitle: 'step-value · API Cost Dashboard',
@@ -90,7 +97,14 @@ window.__ModuleLoader__.load({
         updatedAt: 'Updated',
         expand: 'Expand',
         collapse: 'Collapse',
-        usdPer1k: 'USD / 1K tokens'
+        usdPer1k: 'USD / 1K tokens',
+        // v0.4.0 V1: per-model drill-down + cache/perf indicators
+        byModel: 'By Model',
+        modelShare: 'Cost Share',
+        perTurnAvg: 'Avg / Turn',
+        cacheHits: 'Cache Hits',
+        parseMs: 'Last Parse',
+        cached: 'Disk Cache'
       }
     }
     const STEP_VALUE_I18N_DEFAULT_LOCALE = 'zh'
@@ -303,6 +317,25 @@ window.__ModuleLoader__.load({
             ' · ' + T.turnCount + ': ' + fmtInt(summary && summary.totalTurns) +
             ' · ' + T.totalTokens + ': ' + fmtInt(summary && summary.totalTokens && summary.totalTokens.total))
         ),
+        // v0.4.0 V1: 多模型费用下钻（summary.perModel 聚合 + 成本占比条）
+        summary && summary.perModel && Object.keys(summary.perModel).length > 0 && h('div', { style: { ...cardStyle, marginBottom: 8 } },
+          h('div', { style: { fontSize: 11, color: '#93c5fd', fontWeight: 600 } }, T.byModel),
+          Object.entries(summary.perModel).map(([m, v]) => {
+            const share = summary.totalCostUSD > 0 ? (v.costUSD / summary.totalCostUSD) * 100 : 0
+            return h('div', { key: m, style: { marginTop: 5 } },
+              h('div', { style: { display: 'flex', justifyContent: 'space-between', gap: 6, fontSize: 11 } },
+                h('span', { style: { fontWeight: 600, wordBreak: 'break-all', flex: 1 } }, m),
+                h('span', { style: { color: '#4ade80', fontWeight: 700, whiteSpace: 'nowrap' } },
+                  '$' + fmtUSD(v.costUSD) + ' · ' + share.toFixed(1) + '%')
+              ),
+              h('div', { style: { fontSize: 10, color: 'var(--dsw-alias-label-secondary, #a1a1aa)', marginTop: 1 } },
+                T.turnCount + ': ' + fmtInt(v.turns) + ' · ' + T.perTurnAvg + ': $' + fmtUSD(v.costUSD / (v.turns || 1))),
+              h('div', { style: { marginTop: 3, height: 4, borderRadius: 2, background: 'rgba(255,255,255,.08)' } },
+                h('div', { style: { height: 4, borderRadius: 2, background: '#3b82f6', width: Math.min(100, share) + '%' } })
+              )
+            )
+          })
+        ),
         // 加载 / 空 / 错误 状态
         loading && h('div', { style: { ...hintStyle, padding: '8px 2px' } }, T.refreshing),
         error && error !== 'nodata' && h('div', {
@@ -455,6 +488,10 @@ window.__ModuleLoader__.load({
         h('div', { style: panelFootStyle },
           h('div', {}, T.apiTurnLabel + ' · ' + T.taskStepLabel),
           h('div', {}, T.modelRate + ': ' + T.usdPer1k),
+          // v0.4.0 V1: 缓存/性能指标（summary.stats）
+          summary && summary.stats && h('div', {},
+            T.cached + ': ' + fmtInt(summary.stats.diskHits) + ' · ' + T.cacheHits + ': ' + fmtInt(summary.stats.parses) +
+            ' · ' + T.parseMs + ': ' + fmtInt(summary.stats.lastParseMs) + 'ms'),
           summary && summary.generatedAt && h('div', {}, T.updatedAt + ': ' + isoSlice(summary.generatedAt))
         )
       )

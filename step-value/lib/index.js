@@ -274,6 +274,9 @@ export async function parseSessionLog(filePath, limits = {}) {
 
 const parseCache = new Map() // logPath -> { ts, sig, result }
 
+// v0.4.0 V1：缓存/解析统计（供 summary.stats 展示性能指标）
+const cacheStats = { diskHits: 0, parses: 0, lastParseMs: 0 }
+
 // v0.3.0 V2：Worker 线程池并行解析（eval worker 通过 import() 复用本模块 parseSessionLog，多核真并行）。
 // worker 数量 = CPU 核数 - 1（下限 1）；文件数 ≤2 时直接主线程解析（worker 开销大于收益）。
 const CPU_WORKERS = Math.max(1, (os.cpus()?.length || 4) - 1)
@@ -304,7 +307,10 @@ export async function parseBatch(fileList) {
   if (jobs.length <= 2 || CPU_WORKERS <= 1) {
     for (const j of jobs) {
       try {
+        const t0 = Date.now()
         const r = await parseSessionLog(j.path, j.limits || {})
+        cacheStats.parses += 1
+        cacheStats.lastParseMs = Date.now() - t0   // v0.4.0 V1：解析统计
         if (r) results.set(j.path, r)
       } catch { /* 单文件失败跳过 */ }
     }
@@ -350,6 +356,7 @@ function readParsedFromCache(logPath) {
       const disk = JSON.parse(readFileSync(diskPath, 'utf8'))
       if (disk && disk.sig === sig && disk.result) {
         parseCache.set(logPath, { ts: Date.now(), sig, result: disk.result })
+        cacheStats.diskHits += 1   // v0.4.0 V1：磁盘缓存命中计数
         return { sig, result: disk.result }
       }
     } catch { /* 损坏缓存忽略 */ }
@@ -376,7 +383,10 @@ async function cachedParse(logPath) {
   const c = readParsedFromCache(logPath)
   if (!c) return null
   if (c.result) return c.result
+  const t0 = Date.now()
   const result = await parseSessionLog(logPath)
+  cacheStats.parses += 1
+  cacheStats.lastParseMs = Date.now() - t0   // v0.4.0 V1：解析统计
   writeParsedToCache(logPath, c.sig, result)
   return result
 }
@@ -513,6 +523,8 @@ export async function buildSummary(root = SESSIONS_ROOT) {
     totalCostCNY: round6(totalCostCNY),
     avgCostPerTurn: totalTurns > 0 ? round6(totalCostUSD / totalTurns) : 0,
     perModel: Object.fromEntries(Object.entries(totalPerModel).map(([m, v]) => [m, { ...v, costUSD: round6(v.costUSD) }])),
+    // v0.4.0 V1：缓存/解析统计（磁盘命中、解析次数、最近解析耗时）
+    stats: { ...cacheStats, cacheEntries: parseCache.size },
     workspaces: wsOut
   }
 }
