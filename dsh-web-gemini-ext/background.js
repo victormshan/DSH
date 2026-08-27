@@ -4,6 +4,8 @@
 // v1.5.0 (V2): 轮询 3s → 1s —— 主循环 setTimeout 自调度（SW 存活期间 1s 轮询），
 //   chrome.alarms 仅作 SW 休眠兜底唤醒（Chrome alarms 最小周期约 0.5 分钟，无法做到 1s）；
 //   自适应节流：bridge 连续不可达（≥3 次）退避到 5s，防空轮询压力；防并发重入。
+// v2.3-1 (v2.0.0): 多 Tab 负载均衡 —— 维护 Gemini 标签页活跃度（tabActivity），
+//   取任务时选择最久未使用的标签页分发，多标签页并行处理；单标签页行为不变。
 'use strict'
 
 const BRIDGE = 'http://localhost:8899'
@@ -12,10 +14,24 @@ const POLL_BACKOFF_MS = 5000  // bridge 连续不可达时退避间隔
 let pollTimer = null
 let polling = false           // 防并发重入
 let consecutiveFails = 0
+const tabActivity = new Map() // v2.3-1: { tabId: lastUsedAt } —— 标签页活跃度（多 Tab 负载均衡）
 
 async function bridgeFetch(path, opts) {
   const r = await fetch(BRIDGE + path, opts)
   return r.json().catch(() => ({ ok: false }))
+}
+
+// v2.3-1: 选择最久未使用的 Gemini 标签页（活跃度优先）；无记录时按数组序
+function pickIdleTab(tabs) {
+  if (!tabs || tabs.length === 0) return null
+  if (tabs.length === 1) return tabs[0]
+  let best = tabs[0]
+  let bestAt = Infinity
+  for (const t of tabs) {
+    const at = tabActivity.get(t.id) || 0
+    if (at < bestAt) { bestAt = at; best = t }
+  }
+  return best
 }
 
 async function pollOnce() {
@@ -27,13 +43,21 @@ async function pollOnce() {
       consecutiveFails = 0
       return // 无 Gemini 标签页：跳过（1s 轻轮询成本低）
     }
-    const tabId = tabs[0].id
+    // v2.3-1: 清理已关闭标签页的活跃度记录
+    const liveIds = new Set(tabs.map((t) => t.id))
+    for (const id of tabActivity.keys()) {
+      if (!liveIds.has(id)) tabActivity.delete(id)
+    }
     const d = await bridgeFetch('/next-task')
     if (d && d.ok && d.task) {
       consecutiveFails = 0
-      console.log('[web-gemini] 取到任务', d.task.id)
-      const resp = await chrome.tabs.sendMessage(tabId, { type: 'handle-task', task: d.task }).catch(() => null)
+      // v2.3-1: 多 Tab 负载均衡——选择最久未用的标签页分发
+      const target = pickIdleTab(tabs)
+      if (!target) return
+      console.log('[web-gemini] 取到任务', d.task.id, '→ 分发到 Tab', target.id)
+      const resp = await chrome.tabs.sendMessage(target.id, { type: 'handle-task', task: d.task }).catch(() => null)
       if (resp && resp.answer) {
+        tabActivity.set(target.id, Date.now())
         await bridgeFetch('/submit-answer', {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
@@ -49,7 +73,9 @@ async function pollOnce() {
         })
         console.warn('[web-gemini] 任务', d.task.id, '失败:', String(resp.error).slice(0, 200))
       } else {
-        console.warn('[web-gemini] 任务', d.task.id, '处理未返回答案（content script 可能未注入，请刷新 Gemini 标签页）')
+        // v2.3-1: 该标签页不可用（content script 未注入/页面卡死）→ 记录活跃度（下次选别的）并告警
+        tabActivity.set(target.id, Date.now())
+        console.warn('[web-gemini] 任务', d.task.id, '处理未返回答案（Tab ' + target.id + ' content script 可能未注入，请刷新 Gemini 标签页）')
       }
     } else {
       consecutiveFails = 0 // 无任务：正常（保持 1s 轻轮询）
@@ -89,4 +115,4 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 // 启动主循环（SW 每次唤醒顶层都会执行）
 scheduleNext()
 
-console.log('[web-gemini] background 已加载（1s 轮询 + alarms 兜底，bridge 不可达退避 5s）')
+console.log('[web-gemini] background 已加载（1s 轮询 + 多 Tab 负载均衡 + alarms 兜底，bridge 不可达退避 5s）')

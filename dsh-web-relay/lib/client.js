@@ -174,6 +174,11 @@ window.__ModuleLoader__.load({
         footerHint: 'Enter 提交 · Shift+Enter 换行',
         progressStep: 'Step',
         progressWaiting: '等待外部AI',
+        // v2.0-1: 熔断状态卡片与 Version Gate
+        circuitBreakerTitle: '⛔ 熔断已触发（连续打回 ≥3 次，自动暂停）',
+        versionGateLabel: '版本',
+        badgePaused: '已熔断（paused）',
+        dagPreviewTitle: 'DAG 拓扑（点击节点展开明细）',
         badgeWaitReview: '等待审核',
         badgeExecuting: '主 agent 执行中',
         badgeDone: '已完成',
@@ -306,6 +311,11 @@ window.__ModuleLoader__.load({
         footerHint: 'Enter to submit · Shift+Enter for newline',
         progressStep: 'Step',
         progressWaiting: 'Waiting for external AI',
+        // v2.0-1: 熔断状态卡片与 Version Gate
+        circuitBreakerTitle: '⛔ Circuit breaker tripped (≥3 consecutive rejects, auto-paused)',
+        versionGateLabel: 'Version',
+        badgePaused: 'Paused (circuit open)',
+        dagPreviewTitle: 'DAG topology (click a node to expand)',
         badgeWaitReview: 'Awaiting review',
         badgeExecuting: 'Main agent running',
         badgeDone: 'Done',
@@ -452,6 +462,7 @@ window.__ModuleLoader__.load({
       const [savedPath, setSavedPath] = useState('')
       const [error, setError] = useState('')
       const [config, setConfig] = useState(null)
+      const [health, setHealth] = useState(null)   // v2.4-2: 三端 Health Checker 状态
       const [contextRecords, setContextRecords] = useState(null)
       const [contextText, setContextText] = useState('')
       const [contextCopied, setContextCopied] = useState(false)
@@ -563,6 +574,20 @@ window.__ModuleLoader__.load({
           .then((d) => setConfig(d))
           .catch(() => setConfig({ ok: false, geminiConfigured: false }))
       }, [])
+
+      // v2.4-2: 三端 Health Checker——面板打开拉取 /health-check，每 30s 刷新
+      useEffect(() => {
+        if (!open) return
+        let cancelled = false
+        const fetchHealth = () =>
+          fetch('/dsh-web-relay/health-check')
+            .then((r) => (r.ok ? r.json() : null))
+            .then((d) => { if (!cancelled && d && d.ok) setHealth(d) })
+            .catch(() => { /* silent */ })
+        fetchHealth()
+        const timer = setInterval(fetchHealth, 30000)
+        return () => { cancelled = true; clearInterval(timer) }
+      }, [open])
 
       // reset preview when the pasted text changes
       useEffect(() => {
@@ -1399,6 +1424,43 @@ window.__ModuleLoader__.load({
         let progPos = progCurrent ? progSteps.indexOf(progCurrent) + 1 : progSteps.filter((s) => s.status === 'approved').length
         if (progTotal > 0) progPos = Math.min(progTotal, Math.max(1, progPos))
         const progPhase = (stepState && stepState.phase) || ''
+
+        // v2.1-2: DAG 拓扑分层（无依赖=0 层；depends_on 取依赖层 max+1；parallel_group 强制同层）
+        const dagLayers = (list) => {
+          const byId = new Map((list || []).map((s) => [String(s.id), s]))
+          const layerOf = new Map()
+          const calc = (s) => {
+            const k = String(s.id)
+            if (layerOf.has(k)) return layerOf.get(k)
+            const deps = Array.isArray(s.depends_on) ? s.depends_on : []
+            let L = 0
+            for (const d of deps) {
+              const dep = byId.get(String(d))
+              if (dep) L = Math.max(L, calc(dep) + 1)
+            }
+            layerOf.set(k, L)
+            return L
+          }
+          for (const s of list || []) calc(s)
+          const groups = {}
+          for (const s of list || []) {
+            const g = s.parallel_group
+            if (g) groups[g] = Math.max(groups[g] || 0, layerOf.get(String(s.id)) || 0)
+          }
+          for (const s of list || []) {
+            const g = s.parallel_group
+            if (g) layerOf.set(String(s.id), groups[g])
+          }
+          const layers = []
+          for (const s of list || []) {
+            const L = layerOf.get(String(s.id)) || 0
+            layers[L] = layers[L] || []
+            layers[L].push(s)
+          }
+          return layers.filter(Boolean)
+        }
+        const colorOfStatus = (st) => st === 'approved' ? '#4ade80' : st === 'review' ? '#fbbf24' : st === 'executing' ? '#60a5fa' : st === 'rejected' ? '#f87171' : st === 'paused' ? '#ef4444' : '#71717a'
+        const dagPreviewLayers = steps && steps.length > 0 ? dagLayers(steps) : []
         let progBadge = T.progressWaiting
         let progBadgeColor = 'var(--dsw-alias-label-secondary, #a1a1aa)'
         if (stepState && stepState.status === 'stopped') { progBadge = T.badgeStopped; progBadgeColor = '#f87171' }
@@ -1514,6 +1576,16 @@ window.__ModuleLoader__.load({
           config && !config.geminiConfigured
             ? h('div', { style: warnStyle }, T.geminiNotConfigured)
             : (config && h('div', { style: hintStyle }, `${T.configVersion}${config.version || '?'} · ${config.geminiConfigured ? T.configReady + ' · model: ' + config.model : T.configNotReady} · shell: ${config.shellAvailable ? '✓' : '✗'} · apiProxy: ${config.apiProxyAvailable ? '✓' : '✗'}`)),
+          // v2.4-2: 三端 Health Checker 状态灯（bridge 红/绿；扩展与 Gemini 页面由面板客户端探测占位灰）
+          health && h('div', { style: { display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', margin: '2px 0', fontSize: 11, color: '#a1a1aa' } },
+            h('span', { style: { display: 'inline-flex', alignItems: 'center', gap: 4 } },
+              h('span', { style: { width: 8, height: 8, borderRadius: 4, background: (health.bridge && health.bridge.ok) ? '#4ade80' : '#ef4444' } }), 'bridge'),
+            h('span', { style: { display: 'inline-flex', alignItems: 'center', gap: 4 } },
+              h('span', { style: { width: 8, height: 8, borderRadius: 4, background: '#71717a' } }), 'ext'),
+            h('span', { style: { display: 'inline-flex', alignItems: 'center', gap: 4 } },
+              h('span', { style: { width: 8, height: 8, borderRadius: 4, background: '#71717a' } }), 'gemini'),
+            h('span', {}, T.configVersion + (health.version || '?'))
+          ),
           // 协议版本选择 + 可展开全文（中/英随界面语言；打包上下文与 Step 实施按所选版本执行）
           protocol && h('div', { style: { display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 4, margin: '2px 0' } },
             h('div', { style: { display: 'flex', alignItems: 'center', gap: 6 } },
@@ -1675,11 +1747,23 @@ window.__ModuleLoader__.load({
                   '· ' + T.phaseLabel + ': ' + (T.phase[progPhase] || progPhase || '—')),
                 protocolVersion === 'v1.6' && progReadyCount >= 0 && h('span', { style: { fontSize: 12, color: 'var(--dsw-alias-label-secondary, #a1a1aa)' } },
                   '· ' + T.progressReady + ': ' + String(progReadyCount)),
-                h('span', { style: { fontSize: 12, fontWeight: 600, color: progBadgeColor } }, '· ' + progBadge)
+                h('span', { style: { fontSize: 12, fontWeight: 600, color: progBadgeColor } }, '· ' + progBadge),
+                // v2.0-1: Version Gate 徽标（AutoIteration 多版任务显示 Vn/N）
+                stepState && stepState.iterations > 1 && h('span', { style: { fontSize: 12, fontWeight: 700, color: '#c084fc', border: '1px solid rgba(167,139,250,.5)', borderRadius: 4, padding: '0 6px' } },
+                  T.versionGateLabel + ': V' + String((stepState.currentIteration || 1)) + '/' + String(stepState.iterations)
+                )
               ),
               h('div', { style: { marginTop: 4, height: 4, borderRadius: 2, background: 'var(--dsw-alias-bg-layer-2, rgba(0,0,0,.2))', overflow: 'hidden' } },
                 h('div', { style: { height: '100%', width: (progTotal > 0 ? (progPos / progTotal) * 100 : 0) + '%', background: 'var(--dsw-alias-brand-primary, #3b82f6)', borderRadius: 2, transition: 'width .3s ease' } })
               )
+            ),
+            // v2.0-1: 熔断状态卡片（status=paused 时高亮警示 + 恢复按钮）
+            stepState && stepState.status === 'paused' && h('div', { style: { marginTop: 8, border: '1px solid #ef4444', borderRadius: 6, padding: 8, background: 'rgba(239,68,68,.08)' } },
+              h('div', { style: { color: '#f87171', fontWeight: 700, fontSize: 12 } }, T.circuitBreakerTitle),
+              h('div', { style: { ...hintStyle, marginTop: 4 } },
+                (stepState.stopReason || '连续打回 ≥3 次，自动暂停') + (stepState.rejectStreak ? '（rejectStreak: ' + String(stepState.rejectStreak) + '）' : '')
+              ),
+              h('button', { onClick: resumeExperiment, disabled: stepBusy, style: { ...btnStyle, padding: '4px 10px', fontSize: 12, marginTop: 6 } }, T.btn.resume)
             ),
             // even when the current panel state is empty after a restart.
             h('div', { style: { marginTop: 8, border: '1px solid var(--dsw-alias-border-l1, #3f3f46)', borderRadius: 6, padding: 8 } },
@@ -1748,6 +1832,32 @@ window.__ModuleLoader__.load({
                     className: 'dwr-ghost',
                     style: { ...ghostPurple, padding: '4px 10px', fontSize: 12, opacity: (restructureBusy || !restructureText.trim()) ? 0.6 : 1 }
                   }, restructureBusy ? T.restructureApply + '…' : T.restructureApply)
+                )
+              ),
+
+              // v2.1-2: DAG 拓扑图预览（分层 flex + 层间箭头；点击节点展开对应步骤明细）
+              dagPreviewLayers.length > 1 && h('div', { style: { marginTop: 8, border: '1px solid rgba(96,165,250,.25)', borderRadius: 6, padding: 6, background: 'rgba(96,165,250,.04)' } },
+                h('div', { style: { fontSize: 11, color: '#93c5fd', fontWeight: 600, marginBottom: 4 } }, T.dagPreviewTitle),
+                dagPreviewLayers.map((layer, li) =>
+                  h('div', { key: 'dagl' + li },
+                    h('div', { style: { display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' } },
+                      layer.map((s) => h('span', {
+                        key: String(s.id),
+                        onClick: () => setLowExpanded((prev) => ({ ...prev, [String(s.id)]: !prev[String(s.id)] })),
+                        title: s.title,
+                        style: {
+                          fontSize: 11, cursor: 'pointer', padding: '2px 8px', borderRadius: 4, whiteSpace: 'nowrap',
+                          color: 'var(--dsw-alias-label-primary, #e4e4e7)',
+                          border: '1px solid ' + colorOfStatus(s.status),
+                          background: 'rgba(24,24,27,.6)'
+                        }
+                      },
+                        h('span', { style: { display: 'inline-block', width: 8, height: 8, borderRadius: 4, marginRight: 6, background: colorOfStatus(s.status) } }),
+                        String(s.id) + ' · ' + (s.title || '').slice(0, 12)
+                      ))
+                    ),
+                    li < dagPreviewLayers.length - 1 && h('div', { style: { textAlign: 'center', color: '#3f3f46', fontSize: 12, margin: '2px 0' } }, '↓')
+                  )
                 )
               ),
 

@@ -14,6 +14,15 @@
 // injected workspacePath and appends its closure via POST /dsh-web-relay/trace.
 
 import { randomUUID } from 'node:crypto'
+import { readFileSync } from 'node:fs'
+
+// v2.4-1: 插件版本（从 package.json 实时读取，避免硬编码漂移——原 statusHandler 曾长期报 1.3.0）
+export const PLUGIN_VERSION = (() => {
+  try {
+    const raw = readFileSync(new URL('../package.json', import.meta.url), 'utf8')
+    return (JSON.parse(raw).version) || '0.0.0'
+  } catch (err) { return '0.0.0' }
+})()
 
 export const name = 'dsh-web-relay'
 // apiProxy must be a HARD inject (like dsh-side-window): ctx.get('apiProxy')
@@ -503,7 +512,8 @@ export function apply(ctx) {
 
   // ---------- v1.5: 审核辅助 ----------
   // 构建审核 prompt（外部 AI 与对话模型共用）；artifact_required:false 的步骤不要求实体产物。
-  function buildReviewPrompt(exprId, step, recordText, traceText, reviewer) {
+  // v2.2-1: 增加 artifactsSummary 参数——上一步产物文件内容摘要注入审核上下文，降低盲审打回。
+  function buildReviewPrompt(exprId, step, recordText, traceText, reviewer, artifactsSummary) {
     return [
       `你是 dsh-web-relay 的审核员（${reviewer}）。请只审核当前 Step。`,
       '',
@@ -518,6 +528,8 @@ export function apply(ctx) {
       '',
       '主 agent 已提交 review，请根据实际执行结果审核。',
       '',
+      artifactsSummary ? artifactsSummary : '',
+      '',
       '【任务记录摘要】',
       clip(recordText || '(无)', 4000),
       '',
@@ -531,6 +543,25 @@ export function apply(ctx) {
       '',
       '请只回复 JSON，格式：{"result":"approved" 或 "rejected","reason":"审核意见"}'
     ].join('\n')
+  }
+
+  // v2.2-1: 上一步产物摘要（读取 step.artifacts 指向的文件内容，截断 2000 字符/文件；
+  // 无 artifacts 或读取失败时优雅跳过，绝不阻断审核流程）。
+  async function buildArtifactsSummary(base, safePolicy, artifacts) {
+    const list = Array.isArray(artifacts) ? artifacts : []
+    if (list.length === 0) return ''
+    const parts = []
+    for (const raw of list) {
+      const p = String(raw || '').trim()
+      if (!p) continue
+      try {
+        const target = await fs.resolve(p, { cwd: base })
+        const text = await fs.readText(target).catch(() => null)
+        if (text == null) { parts.push(`（无法读取产物：${p}）`); continue }
+        parts.push(`--- ${p} ---\n${clip(text, 2000)}`)
+      } catch (err) { parts.push(`（产物路径无法解析：${p}）`) }
+    }
+    return '【上一步产物摘要（v2.2-1 上下文增强，自动注入）】\n' + parts.join('\n\n')
   }
 
   // 对话模型（无工具）审核：跟随主会话路由（llm 服务），纯文本输出，不调用任何工具。
@@ -1310,11 +1341,36 @@ export function apply(ctx) {
       ok: true,
       geminiConfigured: Boolean(GEMINI_KEY),
       model: GEMINI_MODEL,
-      version: '1.3.0',
+      version: PLUGIN_VERSION,   // v2.4-1: 实时版本（原硬编码 1.3.0）
       shellAvailable: Boolean(shell),
       apiProxyAvailable: Boolean(apiProxy),
       uptime: Math.round(process.uptime()),
       memoryUsage: Math.round(mem.rss / 1024 / 1024) // MB
+    })
+  }
+
+  // v2.4-1: 三端 Health Checker——探测 bridge(8899) 连通性 + 插件版本；
+  // Gemini 页面/扩展状态由面板客户端探测（后端无法直接访问浏览器上下文）。
+  const healthCheckHandler = async (req, res) => {
+    if (req.method === 'OPTIONS') return res.writeHead(204, CORS).end()
+    let bridge = { ok: false, error: '未探测' }
+    try {
+      const ctrl = AbortSignal.timeout(2500)
+      const r = await fetch(`${BRIDGE_BASE}/stats`, { signal: ctrl })
+      const d = await r.json().catch(() => null)
+      bridge = d && d.ok !== false
+        ? { ok: true, total: d.total, byStatus: d.byStatus || {} }
+        : { ok: false, error: 'bridge 响应异常' }
+    } catch (e) {
+      bridge = { ok: false, error: String((e && e.message) || e).slice(0, 120) }
+    }
+    json(res, 200, {
+      ok: true,
+      version: PLUGIN_VERSION,
+      bridge,
+      // Gemini 页面 / 扩展心跳由前端侧探测（见面板 Health Status 状态灯）
+      geminiPage: { ok: null, note: '由面板客户端探测' },
+      extension: { ok: null, note: '由面板客户端探测' }
     })
   }
 
@@ -2219,6 +2275,8 @@ export function apply(ctx) {
       const traceText = (trace.entries || [])
         .map((e) => `[${ROLE_LABEL[e.role] || e.role}] ${e.text}`)
         .join('\n')
+      // v2.2-1: 上一步产物摘要（审核上下文增强）
+      const artifactsSummary = await buildArtifactsSummary(base, safePolicy, step.artifacts)
 
       // ---- v1.5 三级降级链：外部AI → 对话模型(无工具) → 手动 ----
       let reviewer = 'external'   // external | dialog | manual
@@ -2227,7 +2285,7 @@ export function apply(ctx) {
       let prompt = ''
 
       if (GEMINI_KEY) {
-        prompt = buildReviewPrompt(exprId, step, recordText, traceText, '外部 AI（Gemini）')
+        prompt = buildReviewPrompt(exprId, step, recordText, traceText, '外部 AI（Gemini）', artifactsSummary)
         r = await callGemini(prompt)
         if (r.ok) reviewer = 'external'
         else fallbackReason = r.error
@@ -2236,7 +2294,7 @@ export function apply(ctx) {
       }
 
       if (!r.ok) {
-        prompt = buildReviewPrompt(exprId, step, recordText, traceText, '对话模型（无工具）')
+        prompt = buildReviewPrompt(exprId, step, recordText, traceText, '对话模型（无工具）', artifactsSummary)
         r = await callDialogModel(prompt)
         if (r.ok) reviewer = 'dialog'
         else fallbackReason = fallbackReason || r.error
@@ -2778,6 +2836,7 @@ export function apply(ctx) {
   }
 
   ctx.effect(() => webServer.register({ kind: 'exact', path: '/dsh-web-relay/status', handler: statusHandler }), 'dsh-web-relay/status')
+  ctx.effect(() => webServer.register({ kind: 'exact', path: '/dsh-web-relay/health-check', handler: healthCheckHandler }), 'dsh-web-relay/health-check')
   ctx.effect(() => webServer.register({ kind: 'exact', path: '/dsh-web-relay/ask', handler: askHandler }), 'dsh-web-relay/ask')
   ctx.effect(() => webServer.register({ kind: 'exact', path: '/dsh-web-relay/context', handler: contextHandler }), 'dsh-web-relay/context')
   ctx.effect(() => webServer.register({ kind: 'exact', path: '/dsh-web-relay/parse', handler: parseHandler }), 'dsh-web-relay/parse')
