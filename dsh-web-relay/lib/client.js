@@ -190,6 +190,10 @@ window.__ModuleLoader__.load({
         notifyDenied: '桌面通知被拒绝',
         notifyUnsupported: '浏览器不支持桌面通知',
         notificationBreakerTitle: '⛔ dsh-web-relay 熔断已触发',
+        replayTitle: '🔁 Trace Replay',
+        replayTimelineLabel: '状态流转（timeline）',
+        replayTraceLabel: '相关三方发言（trace）',
+        badgeRejected: '已打回',
         badgeWaitReview: '等待审核',
         badgeExecuting: '主 agent 执行中',
         badgeDone: '已完成',
@@ -340,6 +344,10 @@ window.__ModuleLoader__.load({
         notifyDenied: 'Desktop notifications denied',
         notifyUnsupported: 'Desktop notifications unsupported',
         notificationBreakerTitle: '⛔ dsh-web-relay circuit breaker tripped',
+        replayTitle: '🔁 Trace Replay',
+        replayTimelineLabel: 'State flow (timeline)',
+        replayTraceLabel: 'Related trace entries',
+        badgeRejected: 'Rejected',
         badgeWaitReview: 'Awaiting review',
         badgeExecuting: 'Main agent running',
         badgeDone: 'Done',
@@ -494,6 +502,23 @@ window.__ModuleLoader__.load({
       const [webhookUrl, setWebhookUrl] = useState(() => {
         try { return localStorage.getItem('dsh-web-relay:webhook-url') || '' } catch (e) { return '' }
       })
+      // v2.5-2 (UI): Trace Replay 还原结果
+      const [replayResult, setReplayResult] = useState(null)
+      const runReplay = async (stepId) => {
+        if (!exprId) { setError('缺少 exprId，无法 Replay'); return }
+        setError(''); setStepBusy(true)
+        try {
+          const resp = await fetch('/dsh-web-relay/replay', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ workspacePath, exprId, stepId })
+          })
+          const data = await resp.json().catch(() => ({ ok: false, error: 'bad response' }))
+          if (!data.ok) { setError(data.error || 'Replay 失败'); return }
+          setReplayResult(data)
+        } catch (e) { setError(String((e && e.message) || e)) }
+        finally { setStepBusy(false) }
+      }
       const saveWebhook = () => {
         try { localStorage.setItem('dsh-web-relay:webhook-url', webhookUrl.trim()) } catch (e) { /* ignore */ }
         setError(webhookUrl.trim() ? T.webhookSaved : T.webhookCleared)
@@ -2029,11 +2054,40 @@ window.__ModuleLoader__.load({
                       h('button', { onClick: () => autoReviewStep(s.id), disabled: stepBusy, className: 'dwr-ghost', style: { ...ghostPurple, padding: '2px 8px', fontSize: 11 } }, (stepBusy && stepBusyAction === 'autoReview') ? T.btn.autoReviewing : T.btn.autoReview),
                       h('button', { onClick: () => callStepUpdate(s.id, 'approve'), disabled: stepBusy, className: 'dwr-ghost', style: { ...ghostGreen, padding: '2px 8px', fontSize: 11 } }, busyLabel('approve', T.btn.extApprove)),
                       h('button', { onClick: () => callStepUpdate(s.id, 'reject'), disabled: stepBusy, className: 'dwr-ghost', style: { ...ghostRed, padding: '2px 8px', fontSize: 11 } }, busyLabel('reject', T.btn.extReject)),
-                      h('button', { onClick: () => callStepUpdate(s.id, 'reopen'), disabled: stepBusy, className: 'dwr-ghost', style: { ...btnGhostStyle, padding: '2px 8px', fontSize: 11 } }, busyLabel('reopen', T.btn.reopen))
+                      h('button', { onClick: () => callStepUpdate(s.id, 'reopen'), disabled: stepBusy, className: 'dwr-ghost', style: { ...btnGhostStyle, padding: '2px 8px', fontSize: 11 } }, busyLabel('reopen', T.btn.reopen)),
+                      // v2.5-2 (UI): Trace Replay 离线复现（rejected 步骤排查）
+                      h('button', { onClick: () => runReplay(s.id), disabled: stepBusy, className: 'dwr-ghost', style: { ...ghostPurple, padding: '2px 8px', fontSize: 11 } }, (stepBusy && stepBusyAction === 'replay') ? 'Replay…' : '🔁 Replay')
                     )
                   )
                 )
               }),
+              // v2.5-2 (UI): Trace Replay 还原结果展示（timeline / review / relatedTrace）
+              replayResult && h('div', { style: { marginTop: 8, border: '1px solid rgba(96,165,250,.35)', borderRadius: 6, padding: 8, background: 'rgba(96,165,250,.05)' } },
+                h('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between' } },
+                  h('div', { style: { fontSize: 12, fontWeight: 600, color: '#93c5fd' } }, T.replayTitle + ' ' + (replayResult.stepId || '') + ' · ' + (replayResult.offline ? 'offline' : '')),
+                  h('button', { onClick: () => setReplayResult(null), className: 'dwr-ghost', style: { ...btnGhostStyle, padding: '2px 8px', fontSize: 11 } }, T.btn.clear)
+                ),
+                replayResult.step && h('div', { style: { ...hintStyle, marginTop: 4 } },
+                  (replayResult.step.title || '') + ' · ' + (T.status[replayResult.step.status] || replayResult.step.status) + (replayResult.step.reviewedBy ? ' · ' + replayResult.step.reviewedBy : '')
+                ),
+                replayResult.review && h('div', { style: { marginTop: 6, padding: 6, border: '1px solid ' + (replayResult.review.result === 'approved' ? 'rgba(74,222,128,.5)' : 'rgba(248,113,113,.5)'), borderRadius: 4, fontSize: 11 } },
+                  h('div', { style: { color: replayResult.review.result === 'approved' ? '#4ade80' : '#f87171', fontWeight: 600 } },
+                    (replayResult.review.result === 'approved' ? T.badgeDone : T.badgeRejected) + ' · ' + (replayResult.review.by || '') + ' · ' + String(replayResult.review.at || '').replace('T', ' ').slice(0, 19)
+                  ),
+                  replayResult.review.reason && h('div', { style: { ...hintStyle, marginTop: 2 } }, replayResult.review.reason)
+                ),
+                h('div', { style: { fontSize: 11, color: '#a1a1aa', fontWeight: 600, marginTop: 6 } }, T.replayTimelineLabel),
+                (replayResult.timeline || []).map((t, i) => h('div', { key: 'tl' + i, style: { marginTop: 2, fontSize: 11 } },
+                  h('span', { style: { color: '#60a5fa' } }, String(t.at || '').replace('T', ' ').slice(0, 19)),
+                  h('span', { style: { color: '#a1a1aa', marginLeft: 6 } }, '[' + (t.by || '') + ':' + (t.action || '') + ']'),
+                  t.text && h('span', { style: { color: '#d4d4d8', marginLeft: 6 } }, String(t.text).slice(0, 80))
+                )),
+                (replayResult.relatedTrace || []).length > 0 && h('div', { style: { fontSize: 11, color: '#a1a1aa', fontWeight: 600, marginTop: 6 } }, T.replayTraceLabel),
+                (replayResult.relatedTrace || []).map((e, i) => h('div', { key: 'rt' + i, style: { marginTop: 2, fontSize: 11 } },
+                  h('span', { style: { color: '#a1a1aa' } }, '[' + (e.role || '') + ']'),
+                  h('span', { style: { color: '#71717a', marginLeft: 6 } }, String(e.text || '').slice(0, 100))
+                ))
+              ),
               h('div', { style: { display: 'flex', gap: 6, marginTop: 6 } },
                 h('input', {
                   value: stepComment,

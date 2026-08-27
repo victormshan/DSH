@@ -72,3 +72,12 @@ test('source 源码含 v2.5-2 Replay 标记（lib/index.js）', () => {
   assert.ok(src.includes('relatedTrace'))
   assert.ok(src.includes('lastRev'))
 })
+
+test('source 源码含 v2.2.1 Replay 面板 UI 标记（lib/client.js）', () => {
+  const client = fs.readFileSync(new URL('../lib/client.js', import.meta.url), 'utf8')
+  assert.ok(client.includes('v2.5-2 (UI): Trace Replay 离线复现'))
+  assert.ok(client.includes('v2.5-2 (UI): Trace Replay 还原结果展示'))
+  assert.ok(client.includes('runReplay'))
+  assert.ok(client.includes('/dsh-web-relay/replay'))
+  assert.ok(client.includes('replayTitle'))
+})
