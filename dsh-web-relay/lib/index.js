@@ -431,6 +431,9 @@ const LABEL_ROLE = { '用户': 'user', '主 agent': 'mainagent', '外部AI': 'ex
 const GEMINI_ROOT = 'https://generativelanguage.googleapis.com/v1beta/models'
 const GEMINI_KEY = process.env.GEMINI_API_KEY ?? ''
 const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-3.6-flash'
+// v1.9 web-gemini 通道：本地中转服务器（Chrome 扩展 dsh-web-gemini-ext 桥接 gemini.google.com）。
+// 可用 DSH_RELAY_BRIDGE 覆盖；无需 API Key、免配额。
+export const BRIDGE_BASE = process.env.DSH_RELAY_BRIDGE || 'http://localhost:8899'
 // v1.9 claude 通道：默认 Claude 模型（经 harness llm 服务 anthropic provider 调用；
 // 需配置 llm-pi-ai providers.anthropic 路由 + ANTHROPIC_API_KEY 环境变量）。可用 DSH_RELAY_CLAUDE_MODEL 覆盖。
 export const CLAUDE_DEFAULT_MODEL = process.env.DSH_RELAY_CLAUDE_MODEL || 'claude-sonnet-4-5'
@@ -617,6 +620,33 @@ export function apply(ctx) {
           : ''
     const reason = (parsed && parsed.reason) || String(text || '').slice(0, 500)
     return { result, reason }
+  }
+
+  // ---------- v1.9 web-gemini 通道：本地中转（Chrome 扩展 dsh-web-gemini-ext）----------
+  // 发任务到 BRIDGE_BASE/create-task，轮询 task-result 直到 done；无 API Key、免配额。
+  // 返回 { ok, text } 或 { ok:false, error }。
+  async function webGeminiAsk(prompt, timeoutMs = 150000) {
+    try {
+      const c = await fetch(`${BRIDGE_BASE}/create-task`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ prompt })
+      })
+      const cd = await c.json().catch(() => null)
+      if (!cd || !cd.ok || !cd.id) return { ok: false, error: 'bridge create-task 失败（中转服务器未运行？）' }
+      const deadline = Date.now() + timeoutMs
+      while (Date.now() < deadline) {
+        await new Promise((r) => setTimeout(r, 3000))
+        const t = await fetch(`${BRIDGE_BASE}/task-result/${cd.id}`)
+        const td = await t.json().catch(() => null)
+        if (td && td.ok && td.task && td.task.status === 'done' && td.task.answer) {
+          return { ok: true, text: td.task.answer }
+        }
+      }
+      return { ok: false, error: `bridge 超时（${timeoutMs}ms，Gemini 网页未回复）` }
+    } catch (e) {
+      return { ok: false, error: String((e && e.message) || e) }
+    }
   }
 
   // ---------- v1.5: 审核状态锁（防重复唤醒/重复提交） ----------
@@ -1323,25 +1353,58 @@ export function apply(ctx) {
           '',
           WEB_RELAY_EXTERNAL_AI_SKILL
         ].join('\n')
-        // v1.9 全角色降级链（external → dialog → pause）：Gemini 无 key 或调用失败时
-        // 自动降级到内部对话模型（callDialogModel，无工具），仍失败才报错由用户介入。
+        // v1.9 全角色降级链（external → web-gemini → dialog → pause）：
+        // Gemini API 失败（429/配额）→ 网页版通道（免配额）→ 内部对话模型 → 报错由用户介入。
         let r = { ok: false, error: 'GEMINI_API_KEY 未配置' }
         let degraded = false
         if (GEMINI_KEY) {
           r = await callGemini(guidedPrompt)
           if (!r.ok) {
-            const d = await callDialogModel(guidedPrompt)
-            if (d.ok) { r = d; degraded = true }
-            else r = { ok: false, error: `Gemini 调用失败（${r.error}）；对话模型降级亦失败（${d.error}）` }
+            // v1.9 web-gemini：Gemini API 429/失败 → 网页版通道（第一降级节点）
+            const w = await webGeminiAsk(guidedPrompt)
+            if (w.ok) { r = w; degraded = true; providerLabel = 'Gemini 网页版（web-gemini 降级）' }
+            else {
+              const d = await callDialogModel(guidedPrompt)
+              if (d.ok) { r = d; degraded = true; providerLabel = '对话模型（降级）' }
+              else r = { ok: false, error: `Gemini 调用失败（${r.error}）；web-gemini（${w.error}）；对话模型降级亦失败（${d.error}）` }
+            }
           }
         } else {
-          const d = await callDialogModel(guidedPrompt)
-          if (d.ok) { r = d; degraded = true }
+          const w = await webGeminiAsk(guidedPrompt)
+          if (w.ok) { r = w; degraded = true; providerLabel = 'Gemini 网页版（web-gemini 降级）' }
+          else {
+            const d = await callDialogModel(guidedPrompt)
+            if (d.ok) { r = d; degraded = true; providerLabel = '对话模型（降级）' }
+          }
         }
         if (!r.ok) return json(res, 502, r)
         answer = r.text
-        if (degraded) providerLabel = '对话模型（降级）'
-        askChannel = degraded ? 'dialog-fallback' : 'gemini-free'
+        askChannel = degraded ? (providerLabel.startsWith('Gemini 网页版') ? 'web-gemini' : 'dialog-fallback') : 'gemini-free'
+      } else if (provider === 'web-gemini') {
+        // v1.9: 直接选择 Gemini 网页版通道（Chrome 扩展桥接，免配额）；失败降级 dialog → manual
+        providerLabel = 'Gemini 网页版（web-gemini）'
+        if (!prompt) return json(res, 400, { ok: false, error: '缺少 prompt' })
+        const guidedPrompt = [
+          prompt,
+          '',
+          '【dsh-web-relay 协作要求】',
+          '如果这是一个复杂任务，请在回答中同时输出 json:agent-action 代码块（含 wake_agent 或 plan）和机器可读 steps 数组。',
+          '如果是简单问题，直接回答即可。',
+          '',
+          WEB_RELAY_PROTOCOL,
+          '',
+          WEB_RELAY_EXTERNAL_AI_SKILL
+        ].join('\n')
+        let r = await webGeminiAsk(guidedPrompt)
+        let degraded = false
+        if (!r.ok) {
+          const d = await callDialogModel(guidedPrompt)
+          if (d.ok) { r = d; degraded = true; providerLabel = '对话模型（降级）' }
+          else r = { ok: false, error: `web-gemini（${r.error}）；对话模型降级亦失败（${d.error}）` }
+        }
+        if (!r.ok) return json(res, 502, r)
+        answer = r.text
+        askChannel = degraded ? 'dialog-fallback' : 'web-gemini'
       } else if (provider === 'claude') {
         // v1.9: Claude API 通道——复用 harness llm 服务的 anthropic provider（llm-pi-ai 路由），
         // 需 ANTHROPIC_API_KEY + cordis.patch.yml 配置 providers.anthropic；失败降级 dialog → manual。

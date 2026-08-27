@@ -542,6 +542,33 @@ v1.3.0 在 v1.2.1 之上新增（外部 AI 双视角评估批准：草案一 Aut
 
 **范本要素（后续 AutoIteration 任务复用）**：① 声明 `iterations/finalAcceptance/autoDecision`；② 每版由外部 AI 输出修正 Step List（importance 分工）；③ 版间门自动递进；④ 外部 AI 不可用 → 降级链（dialog/manual）保障不卡死；⑤ 预发布 tag `vX.Y.Z-iter.N` → 终态正式 tag。
 
+### 4.14 web-gemini 网页通道（Chrome 扩展，免配额）
+
+> 网页间自动交流（油猴 PoC 验证 → Chrome 扩展正式化）：主 agent 与 gemini.google.com 网页版自动对话，**无需 API Key、绕过免费层配额**。PoC 实测（expr 链路）：t0002/t0003 双任务闭环、零人工介入、回答 749/1248 字。
+
+**架构**：
+
+```
+主 agent / 面板（provider=web-gemini）
+  → dsh-web-relay askHandler → webGeminiAsk()
+  → 本地中转服务器 localhost:8899（create-task / task-result）
+  → Chrome 扩展 dsh-web-gemini-ext（background 轮询 → content script DOM 自动化）
+  → gemini.google.com 网页自动输入/发送/回复 → 回传 answer
+```
+
+- **Chrome 扩展**（`D:\dsh relay test\dsh-web-gemini-ext\`）：MV3——background service worker 轮询 `http://localhost:8899/next-task`（`host_permissions` 授权），content script（gemini.google.com）DOM 输入+发送，**MutationObserver 精确判定回复完成**（发送按钮停止态恢复 + 回复文本稳定 1.5s），替代轮询等待
+- **本地中转**：`bridge-server.mjs`（localhost:8899，内存队列）；dsh-web-relay 经 `BRIDGE_BASE`（`DSH_RELAY_BRIDGE` 可覆盖）访问
+- **降级链升级**：`external(Gemini API) → web-gemini(网页免配额) → dialog(内部模型) → manual`——Gemini API 429/配额耗尽时自动切入网页版通道
+
+**安装与使用**：
+
+1. 启动中转：`node bridge-server.mjs`（localhost:8899）
+2. Chrome `chrome://extensions` → 开发者模式 → 加载已解压扩展 → 选 `dsh-web-gemini-ext/`
+3. 保持 gemini.google.com 标签页打开（content script 运行前提）
+4. 面板 provider 选 **Gemini 网页版（web-gemini）** 或由降级链自动切入
+
+**要点**：Chrome 对 HTTPS→`127.0.0.1` HTTP 有 PNA/混合内容拦截，扩展 `host_permissions` 只授权 `http://localhost:8899/*`（回环豁免）；扩展上下文 fetch 不受页面 CSP 限制。
+
 ---
 
 ## 5. 使用方法

@@ -155,6 +155,8 @@ window.__ModuleLoader__.load({
         providerGemini: 'Gemini Free API（官方免费）',
         providerClaude: 'Claude API（Anthropic）',
         claudeHint: '任务 prompt 将经 harness llm 服务调用 Claude（需配置 ANTHROPIC_API_KEY + anthropic 路由）：',
+        providerWebGemini: 'Gemini 网页版（web-gemini）',
+        webGeminiHint: '任务将发到本地中转（Chrome 扩展 dsh-web-gemini-ext 自动在 gemini.google.com 回复，免配额）：',
         architectOn: '🧭 架构探讨开',
         architectOff: '🧭 架构探讨',
         protocolExpand: '▶ 三方协议',
@@ -285,6 +287,8 @@ window.__ModuleLoader__.load({
         providerGemini: 'Gemini Free API (official free)',
         providerClaude: 'Claude API (Anthropic)',
         claudeHint: 'The task prompt will be sent to Claude via the harness llm service (requires ANTHROPIC_API_KEY + anthropic route):',
+        providerWebGemini: 'Gemini Web (web-gemini)',
+        webGeminiHint: 'The task will be sent to the local bridge (Chrome ext dsh-web-gemini-ext replies in gemini.google.com, quota-free):',
         architectOn: '🧭 Architecture on',
         architectOff: '🧭 Architecture',
         protocolExpand: '▶ Protocol',
@@ -1535,13 +1539,16 @@ window.__ModuleLoader__.load({
           },
             h('option', { value: 'manual' }, T.providerManual),
             h('option', { value: 'gemini-free' }, T.providerGemini),
-            h('option', { value: 'claude' }, T.providerClaude)
+            h('option', { value: 'claude' }, T.providerClaude),
+            h('option', { value: 'web-gemini' }, T.providerWebGemini)
           ),
           provider === 'manual'
             ? h('div', { style: hintStyle }, T.manualHint)
             : provider === 'claude'
               ? h('div', { style: hintStyle }, T.claudeHint)
-              : h('div', { style: hintStyle }, T.geminiHint),
+              : provider === 'web-gemini'
+                ? h('div', { style: hintStyle }, T.webGeminiHint)
+                : h('div', { style: hintStyle }, T.geminiHint),
           h('textarea', {
             value: prompt,
             onChange: (e) => setPrompt(e.target.value),
