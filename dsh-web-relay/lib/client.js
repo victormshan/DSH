@@ -545,22 +545,6 @@ window.__ModuleLoader__.load({
           Notification.requestPermission().then((p) => setError(p === 'granted' ? T.notifyGranted : T.notifyDenied))
         } else setError(T.notifyUnsupported)
       }
-      // v2.6-2: 熔断桌面通知（status 变为 paused 时弹出一次）
-      const prevPausedRef = useRef(false)
-      useEffect(() => {
-        if (!stepState) return
-        const paused = stepState.status === 'paused'
-        if (paused && !prevPausedRef.current) {
-          try {
-            if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
-              new Notification(T.notificationBreakerTitle, {
-                body: (stepState.stopReason || '连续打回 ≥3 次，自动暂停') + (stepState.rejectStreak ? '（rejectStreak: ' + String(stepState.rejectStreak) + '）' : '')
-              })
-            }
-          } catch (e) { /* ignore */ }
-        }
-        prevPausedRef.current = paused
-      }, [stepState])
       const [contextRecords, setContextRecords] = useState(null)
       const [contextText, setContextText] = useState('')
       const [contextCopied, setContextCopied] = useState(false)
@@ -607,6 +591,23 @@ window.__ModuleLoader__.load({
         const [stepBusy, setStepBusy] = useState(false)
         const [stepComment, setStepComment] = useState('')
         const [stepLoadId, setStepLoadId] = useState('')
+        // v2.6-2: 熔断桌面通知（status 变为 paused 时弹出一次）
+        // 注意：依赖数组 [stepState] 同步求值，必须位于 stepState 声明之后（否则 TDZ ReferenceError）
+        const prevPausedRef = useRef(false)
+        useEffect(() => {
+          if (!stepState) return
+          const paused = stepState.status === 'paused'
+          if (paused && !prevPausedRef.current) {
+            try {
+              if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+                new Notification(T.notificationBreakerTitle, {
+                  body: (stepState.stopReason || '连续打回 ≥3 次，自动暂停') + (stepState.rejectStreak ? '（rejectStreak: ' + String(stepState.rejectStreak) + '）' : '')
+                })
+              }
+            } catch (e) { /* ignore */ }
+          }
+          prevPausedRef.current = paused
+        }, [stepState])
         // 用户主动「清空」后抑制「exprId 为空时自动载入最新任务」，防止清空被自动恢复覆盖；
         // 面板重开时重置，恢复「打开面板自动载入最新任务」的原行为。
         const suppressAutoLoadRef = useRef(false)
