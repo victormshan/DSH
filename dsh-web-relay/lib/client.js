@@ -162,7 +162,8 @@ window.__ModuleLoader__.load({
         protocolExpand: '▶ 三方协议',
         protocolCollapse: '▼ 三方协议',
         planningCardTitle: '当前处于 Planning 阶段',
-        planningCardHint: '请将外部 AI 的 executing 回复粘贴到上方手动输入框并点击解析；或先点击「进入执行阶段」再继续。',
+        planningCardHint: '将外部 AI 的 executing 回复粘贴到下方输入框并点击「解析并执行」；或先点击「进入执行阶段」再继续。',
+        planningPastePlaceholder: '粘贴外部 AI 的 executing 回复（含 json:agent-action 或 steps）…',
         traceTitle: '三方轨迹（用户 / 主 agent / 外部AI）',
         traceCountUnit: '条',
         traceEmpty: '暂无轨迹。开始一次协作对话（含唤醒/收口）后，这里会显示三方对话流水（web-relay/traces/）。',
@@ -199,6 +200,7 @@ window.__ModuleLoader__.load({
           extApprove: '外部通过', extReject: '外部打回', reopen: '重开',
           finalize: '一键收口', finalizing: '收口中…',
           enterExec: '进入执行阶段',
+          parsePlanning: '解析并执行',
           autoReviewOn: '关闭自动审核', autoReviewOff: '开启自动审核',
           newChat: '新对话',
           copyHandoff: '复制 handoff 文本',
@@ -299,7 +301,8 @@ window.__ModuleLoader__.load({
         protocolExpand: '▶ Protocol',
         protocolCollapse: '▼ Protocol',
         planningCardTitle: 'Currently in Planning phase',
-        planningCardHint: 'Paste the external AI executing reply into the manual input above and parse it; or click "Enter execution phase" to continue.',
+        planningCardHint: 'Paste the external AI executing reply below and click "Parse & execute"; or click "Enter execution phase" to continue.',
+        planningPastePlaceholder: 'Paste the external AI executing reply (with json:agent-action or steps)…',
         traceTitle: 'Three-party trace (User / Main agent / External AI)',
         traceCountUnit: 'items',
         traceEmpty: 'No traces yet. Start a collaboration chat (wake/finalize) to see the three-party flow here (web-relay/traces/).',
@@ -336,6 +339,7 @@ window.__ModuleLoader__.load({
           extApprove: 'Approve', extReject: 'Reject', reopen: 'Reopen',
           finalize: 'Finalize', finalizing: 'Finalizing…',
           enterExec: 'Enter execution phase',
+          parsePlanning: 'Parse & execute',
           autoReviewOn: 'Disable auto-review', autoReviewOff: 'Enable auto-review',
           newChat: 'New chat',
           copyHandoff: 'Copy handoff text',
@@ -463,6 +467,7 @@ window.__ModuleLoader__.load({
       const [error, setError] = useState('')
       const [config, setConfig] = useState(null)
       const [health, setHealth] = useState(null)   // v2.4-2: 三端 Health Checker 状态
+      const [planningPaste, setPlanningPaste] = useState('')   // v2.1.0: planning 阶段粘贴 executing 回复
       const [contextRecords, setContextRecords] = useState(null)
       const [contextText, setContextText] = useState('')
       const [contextCopied, setContextCopied] = useState(false)
@@ -1727,10 +1732,28 @@ window.__ModuleLoader__.load({
 
             // v1.3: always allow loading an existing Step List by expr id,
               // v1.4: planning phase helper — paste executing reply below or switch phase.
+              // v2.1.0: 无论 provider 都显示专用粘贴框（修复原提示指向不存在的 manual 输入框）
               stepState && stepState.phase === 'planning' && h('div', { style: { marginTop: 8, border: '1px solid #f59e0b', borderRadius: 6, padding: 8, background: 'rgba(245,158,11,.06)' } },
                 h('div', { style: { color: '#fbbf24', fontWeight: 600, fontSize: 12 } }, T.planningCardTitle),
                 h('div', { style: { ...hintStyle, marginTop: 4 } }, T.planningCardHint),
-                h('button', { onClick: () => setExperimentPhase('executing'), disabled: stepBusy, style: { ...btnStyle, padding: '4px 10px', fontSize: 12, marginTop: 4 } }, T.btn.enterExec)
+                h('textarea', {
+                  value: planningPaste,
+                  onChange: (e) => setPlanningPaste(e.target.value),
+                  placeholder: T.planningPastePlaceholder,
+                  rows: 5, style: { ...inputStyle, marginTop: 6 }
+                }),
+                h('div', { style: { display: 'flex', gap: 6, marginTop: 6, alignItems: 'center' } },
+                  h('button', {
+                    onClick: () => {
+                      if (!planningPaste.trim()) { setError(T.manualNeedPaste); return }
+                      setProvider('manual'); setPasted(planningPaste)
+                      submitManual()
+                    },
+                    disabled: stepBusy || !planningPaste.trim(),
+                    style: { ...btnStyle, padding: '4px 10px', fontSize: 12, opacity: (stepBusy || !planningPaste.trim()) ? 0.6 : 1 }
+                  }, T.btn.parsePlanning),
+                  h('button', { onClick: () => setExperimentPhase('executing'), disabled: stepBusy, style: { ...btnStyle, padding: '4px 10px', fontSize: 12 } }, T.btn.enterExec)
+                )
               ),
 
             // v1.5 T1: M3 流程进度看板（有 stepState/steps 时显示在 tab 之下、Step List 载入卡片之上）

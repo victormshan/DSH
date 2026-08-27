@@ -62,3 +62,16 @@ test('source 源码含 v2.4-1/v2.4-2 标记', () => {
   assert.ok(client.includes('v2.4-2: 三端 Health Checker'))
   assert.ok(client.includes('/dsh-web-relay/health-check'))
 })
+
+test('source 源码含 v2.1.0 修复标记（content 双信号防截断 + planning 粘贴框）', () => {
+  const content = fs.readFileSync(new URL('../../dsh-web-gemini-ext/content.js', import.meta.url), 'utf8')
+  const client = fs.readFileSync(new URL('../lib/client.js', import.meta.url), 'utf8')
+  // content.js：双信号（文本稳定 + 发送按钮可用）防截断
+  assert.ok(content.includes('v2.1.0 双信号'))
+  assert.ok(content.includes('完成判定（文本稳定 + 发送按钮可用）'))
+  assert.ok(content.includes('完成判定（双复查稳定）'))
+  // client.js：planning 专用粘贴框（修复提示指向不存在的 manual 输入框）
+  assert.ok(client.includes('v2.1.0: 无论 provider 都显示专用粘贴框'))
+  assert.ok(client.includes('planningPastePlaceholder'))
+  assert.ok(client.includes('parsePlanning'))
+})

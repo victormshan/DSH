@@ -122,16 +122,28 @@ function waitReply(maxMs, baseCount) {
         if (!seen) return
         const lenNow = freshReplyLen(baseCount)
         if (lenNow < 5) { scheduleSettle(); return }
-        // 复查：再等 2s，文本仍相同才判定完成（排除生成中停顿）
+        // 复查 1：再等 2s，文本仍相同才继续（排除生成中停顿）
         await new Promise((r) => setTimeout(r, 2000))
         if (settled) return
-        const lenAfter = freshReplyLen(baseCount)
-        if (lenAfter === lenNow) {
-          console.log('[web-gemini] 完成判定（复查稳定）len=' + lenAfter)
+        const len1 = freshReplyLen(baseCount)
+        if (len1 !== lenNow) { scheduleSettle(); return }
+        // v2.1.0 双信号：文本稳定后若发送按钮已回到「Send 可用」状态 → 判定完成（快）；
+        // 否则（按钮仍为 Stop/不可用 = 可能分两段输出：文字→停顿→代码块）再复查 2s，
+        // 文本仍不变才判定完成（防截断兜底，覆盖 v2.0.0 评审 ask 截断案例）。
+        const btn = getSendButton()
+        const label = btn ? (((btn.getAttribute('aria-label') || '') + ' ' + (btn.getAttribute('title') || '')).toLowerCase()) : ''
+        const sendReady = Boolean(btn) && !label.includes('stop') && !label.includes('停止') && !btn.disabled
+        if (sendReady) {
+          console.log('[web-gemini] 完成判定（文本稳定 + 发送按钮可用）len=' + len1)
           done()
-        } else {
-          scheduleSettle() // 文本继续变化：重新计时
+          return
         }
+        await new Promise((r) => setTimeout(r, 2000))
+        if (settled) return
+        const len2 = freshReplyLen(baseCount)
+        if (len2 !== len1) { scheduleSettle() /* 文本继续变化：重新计时 */ ; return }
+        console.log('[web-gemini] 完成判定（双复查稳定）len=' + len2)
+        done()
       }, 2000)
     }
     const observer = new MutationObserver(() => {
