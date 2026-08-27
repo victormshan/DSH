@@ -194,6 +194,7 @@ window.__ModuleLoader__.load({
         replayTimelineLabel: '状态流转（timeline）',
         replayTraceLabel: '相关三方发言（trace）',
         badgeRejected: '已打回',
+        replayPickStep: '选择步骤…',
         badgeWaitReview: '等待审核',
         badgeExecuting: '主 agent 执行中',
         badgeDone: '已完成',
@@ -216,6 +217,7 @@ window.__ModuleLoader__.load({
           enterExec: '进入执行阶段',
           parsePlanning: '解析并执行',
           webhookSave: '保存', webhookTest: '测试', notifyOn: '🔔 桌面通知',
+          replayRun: '🔁 Replay',
           autoReviewOn: '关闭自动审核', autoReviewOff: '开启自动审核',
           newChat: '新对话',
           copyHandoff: '复制 handoff 文本',
@@ -347,6 +349,7 @@ window.__ModuleLoader__.load({
         replayTitle: '🔁 Trace Replay',
         replayTimelineLabel: 'State flow (timeline)',
         replayTraceLabel: 'Related trace entries',
+        replayPickStep: 'Pick a step…',
         badgeRejected: 'Rejected',
         badgeWaitReview: 'Awaiting review',
         badgeExecuting: 'Main agent running',
@@ -370,6 +373,7 @@ window.__ModuleLoader__.load({
           enterExec: 'Enter execution phase',
           parsePlanning: 'Parse & execute',
           webhookSave: 'Save', webhookTest: 'Test', notifyOn: '🔔 Notify',
+          replayRun: '🔁 Replay',
           autoReviewOn: 'Disable auto-review', autoReviewOff: 'Enable auto-review',
           newChat: 'New chat',
           copyHandoff: 'Copy handoff text',
@@ -504,6 +508,7 @@ window.__ModuleLoader__.load({
       })
       // v2.5-2 (UI): Trace Replay 还原结果
       const [replayResult, setReplayResult] = useState(null)
+      const [replayStepId, setReplayStepId] = useState('')   // 独立 Replay 入口选中的步骤 id
       const runReplay = async (stepId) => {
         if (!exprId) { setError('缺少 exprId，无法 Replay'); return }
         setError(''); setStepBusy(true)
