@@ -446,6 +446,9 @@ export const BRIDGE_BASE = process.env.DSH_RELAY_BRIDGE || 'http://localhost:889
 // v1.9 claude 通道：默认 Claude 模型（经 harness llm 服务 anthropic provider 调用；
 // 需配置 llm-pi-ai providers.anthropic 路由 + ANTHROPIC_API_KEY 环境变量）。可用 DSH_RELAY_CLAUDE_MODEL 覆盖。
 export const CLAUDE_DEFAULT_MODEL = process.env.DSH_RELAY_CLAUDE_MODEL || 'claude-sonnet-4-5'
+// v2.6-2: Webhook 通知（熔断/降级/审核拒绝/版间门事件 → 外部通道，如 Lark/钉钉/飞书）。
+// 可用 DSH_RELAY_WEBHOOK_URL 配置；fire-and-forget 发送，失败静默不影响主流程。
+export const WEBHOOK_URL = process.env.DSH_RELAY_WEBHOOK_URL || ''
 
 const RUN_CMD_TIMEOUT_DEFAULT = 30000
 const RUN_CMD_TIMEOUT_MAX = 60000
@@ -689,6 +692,25 @@ export function apply(ctx) {
     if (prev && now - prev < 8000) return false
     reviewLocks.set(key, now)
     return true
+  }
+
+  // v2.6-2: Webhook 通知（fire-and-forget，失败静默）。
+  // payload 含 exprId/stepId 时自动展开为报文顶层字段。
+  function notifyWebhook(event, payload) {
+    if (!WEBHOOK_URL) return
+    const p = payload && typeof payload === 'object' ? payload : {}
+    const body = {
+      event,
+      exprId: p.exprId || null,
+      stepId: p.stepId != null ? String(p.stepId) : null,
+      ts: new Date().toISOString(),
+      payload: p
+    }
+    fetch(WEBHOOK_URL, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body)
+    }).catch(() => { /* 通知失败静默，不影响主流程 */ })
   }
 
   // ---------- v1.5: Planning 只读探路缓存（高频文件直读，TTL 60s） ----------
@@ -2048,6 +2070,55 @@ export function apply(ctx) {
     }
   }
 
+  // v2.5-2: Trace Replay 离线调试沙盒——按 exprId+stepId 还原历史步骤的 notes/状态流转/审核记录
+  // 及相关三方发言（纯本地读取，不发起任何外部 AI 请求）。
+  const replayHandler = async (req, res) => {
+    try {
+      if (req.method === 'OPTIONS') return res.writeHead(204, CORS).end()
+      const payload = JSON.parse((await readBody(req)) || '{}')
+      const exprId = typeof payload.exprId === 'string' ? payload.exprId.trim() : ''
+      const stepId = payload.stepId != null ? String(payload.stepId) : ''
+      if (!TRACE_ID_RE.test(exprId)) return json(res, 400, { ok: false, error: 'invalid exprId' })
+      if (!stepId) return json(res, 400, { ok: false, error: 'missing stepId' })
+      const base = baseOf(payload.workspacePath)
+      const safePolicy = safePolicyFor(base)
+      const state = await readStepState(base, exprId)
+      const step = (state.steps || []).find((s) => String(s.id) === String(stepId))
+      if (!step) return json(res, 404, { ok: false, error: 'step not found' })
+      const trace = await loadTrace(base, exprId)
+      // 状态流转：notes 按 action 序列还原
+      const timeline = (step.notes || []).map((n) => ({
+        action: n.action,
+        by: ROLE_LABEL[n.role] || n.role,
+        at: n.at,
+        text: n.text
+      }))
+      // 最终审核记录：最后一个 approved/rejected
+      const lastRev = [...(step.notes || [])].reverse().find((n) => n.action === 'approved' || n.action === 'rejected')
+      // 相关三方发言：步骤 start 时间起的 trace 事件（最多 20 条）
+      const startAt = step.notes && step.notes[0] && step.notes[0].at
+      let related = trace.entries || []
+      if (startAt) related = related.filter((e) => e.at >= startAt)
+      related = related.slice(-20)
+      json(res, 200, {
+        ok: true,
+        exprId,
+        stepId,
+        offline: true,
+        step: {
+          id: step.id, title: step.title, detail: step.detail, acceptance: step.acceptance,
+          status: step.status, importance: step.importance, review: step.review,
+          reviewedBy: step.reviewedBy || null, artifacts: step.artifacts || []
+        },
+        timeline,
+        review: lastRev ? { result: lastRev.action, by: ROLE_LABEL[lastRev.role] || lastRev.role, reason: lastRev.text, at: lastRev.at } : null,
+        relatedTrace: related.map((e) => ({ role: ROLE_LABEL[e.role] || e.role, at: e.at, text: e.text }))
+      })
+    } catch (err) {
+      json(res, 500, { ok: false, error: String(err?.message || err) })
+    }
+  }
+
     // GET /dsh-web-relay/steps?cwd=...&id=expr-... → { ok, exprId, steps, currentStep, status }
     const stepsHandler = async (req, res) => {
       try {
@@ -2195,6 +2266,8 @@ export function apply(ctx) {
             state.status = 'paused'
             state.stopReason = '连续打回 ≥3 次，AutoIteration 自动暂停，等待用户介入'
             state.stoppedAt = new Date().toISOString()
+            // v2.6-2: 熔断事件 Webhook 通知
+            notifyWebhook('circuit_breaker', { exprId, stepId, status: 'paused', reason: state.stopReason, rejectStreak: state.rejectStreak })
           }
         }
 
@@ -2337,6 +2410,9 @@ export function apply(ctx) {
         step.status = 'rejected'
         traceTextEntry = `${reviewerLabel} 自动打回 Step ${step.id}：${step.title}\n${reason}`
       }
+      // v2.6-2: 降级事件（dialog）与审核拒绝事件 Webhook 通知
+      if (reviewer === 'dialog') notifyWebhook('degradation', { exprId, stepId: step.id, reviewer, reason: fallbackReason || 'Gemini 不可用降级 dialog', taskStatus: state.status })
+      if (result === 'rejected') notifyWebhook('review_rejected', { exprId, stepId: step.id, reviewer, reason })
 
       // v1.5 审核来源；v1.8.1：打回（rejected）时清空 reviewedBy，不留残留审核信息
       step.reviewedBy = result === 'approved' ? reviewer : null
@@ -2845,6 +2921,7 @@ export function apply(ctx) {
     ctx.effect(() => webServer.register({ kind: 'exact', path: '/dsh-web-relay/steps/update', handler: stepUpdateHandler }), 'dsh-web-relay/steps/update')
     ctx.effect(() => webServer.register({ kind: 'exact', path: '/dsh-web-relay/steps/auto-review', handler: autoReviewHandler }), 'dsh-web-relay/steps/auto-review')
   ctx.effect(() => webServer.register({ kind: 'exact', path: '/dsh-web-relay/trace', handler: traceHandler }), 'dsh-web-relay/trace')
+  ctx.effect(() => webServer.register({ kind: 'exact', path: '/dsh-web-relay/replay', handler: replayHandler }), 'dsh-web-relay/replay')
   ctx.effect(() => webServer.register({ kind: 'exact', path: '/dsh-web-relay/traces', handler: tracesHandler }), 'dsh-web-relay/traces')
   ctx.effect(() => webServer.register({ kind: 'exact', path: '/dsh-web-relay/record', handler: recordHandler }), 'dsh-web-relay/record')
   ctx.effect(() => webServer.register({ kind: 'exact', path: '/dsh-web-relay/protocol', handler: protocolHandler }), 'dsh-web-relay/protocol')

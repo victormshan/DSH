@@ -180,6 +180,16 @@ window.__ModuleLoader__.load({
         versionGateLabel: '版本',
         badgePaused: '已熔断（paused）',
         dagPreviewTitle: 'DAG 拓扑（点击节点定位步骤；low 步骤展开明细）',
+        webhookPlaceholder: 'Webhook URL（如 Lark/钉钉/飞书，可选）',
+        webhookSaved: 'Webhook 已保存（后端需 DSH_RELAY_WEBHOOK_URL 或重启生效）',
+        webhookCleared: 'Webhook 已清空',
+        webhookNeedUrl: '请先填写 Webhook URL',
+        webhookTestOk: 'Webhook 测试发送成功',
+        webhookTestFail: 'Webhook 测试发送失败:',
+        notifyGranted: '桌面通知已开启',
+        notifyDenied: '桌面通知被拒绝',
+        notifyUnsupported: '浏览器不支持桌面通知',
+        notificationBreakerTitle: '⛔ dsh-web-relay 熔断已触发',
         badgeWaitReview: '等待审核',
         badgeExecuting: '主 agent 执行中',
         badgeDone: '已完成',
@@ -201,6 +211,7 @@ window.__ModuleLoader__.load({
           finalize: '一键收口', finalizing: '收口中…',
           enterExec: '进入执行阶段',
           parsePlanning: '解析并执行',
+          webhookSave: '保存', webhookTest: '测试', notifyOn: '🔔 桌面通知',
           autoReviewOn: '关闭自动审核', autoReviewOff: '开启自动审核',
           newChat: '新对话',
           copyHandoff: '复制 handoff 文本',
@@ -319,6 +330,16 @@ window.__ModuleLoader__.load({
         versionGateLabel: 'Version',
         badgePaused: 'Paused (circuit open)',
         dagPreviewTitle: 'DAG topology (click to locate; low steps expand)',
+        webhookPlaceholder: 'Webhook URL (Lark/DingTalk/Feishu, optional)',
+        webhookSaved: 'Webhook saved (backend needs DSH_RELAY_WEBHOOK_URL or restart)',
+        webhookCleared: 'Webhook cleared',
+        webhookNeedUrl: 'Enter a Webhook URL first',
+        webhookTestOk: 'Webhook test sent',
+        webhookTestFail: 'Webhook test failed:',
+        notifyGranted: 'Desktop notifications enabled',
+        notifyDenied: 'Desktop notifications denied',
+        notifyUnsupported: 'Desktop notifications unsupported',
+        notificationBreakerTitle: '⛔ dsh-web-relay circuit breaker tripped',
         badgeWaitReview: 'Awaiting review',
         badgeExecuting: 'Main agent running',
         badgeDone: 'Done',
@@ -340,6 +361,7 @@ window.__ModuleLoader__.load({
           finalize: 'Finalize', finalizing: 'Finalizing…',
           enterExec: 'Enter execution phase',
           parsePlanning: 'Parse & execute',
+          webhookSave: 'Save', webhookTest: 'Test', notifyOn: '🔔 Notify',
           autoReviewOn: 'Disable auto-review', autoReviewOff: 'Enable auto-review',
           newChat: 'New chat',
           copyHandoff: 'Copy handoff text',
@@ -468,6 +490,47 @@ window.__ModuleLoader__.load({
       const [config, setConfig] = useState(null)
       const [health, setHealth] = useState(null)   // v2.4-2: 三端 Health Checker 状态
       const [planningPaste, setPlanningPaste] = useState('')   // v2.1.0: planning 阶段粘贴 executing 回复
+      // v2.6-2: Webhook 通知配置（localStorage 持久化）
+      const [webhookUrl, setWebhookUrl] = useState(() => {
+        try { return localStorage.getItem('dsh-web-relay:webhook-url') || '' } catch (e) { return '' }
+      })
+      const saveWebhook = () => {
+        try { localStorage.setItem('dsh-web-relay:webhook-url', webhookUrl.trim()) } catch (e) { /* ignore */ }
+        setError(webhookUrl.trim() ? T.webhookSaved : T.webhookCleared)
+      }
+      const testWebhook = async () => {
+        const url = webhookUrl.trim()
+        if (!url) { setError(T.webhookNeedUrl); return }
+        try {
+          const r = await fetch(url, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ event: 'test', exprId: null, stepId: null, ts: new Date().toISOString(), payload: { note: 'dsh-web-relay webhook test' } })
+          })
+          setError(r.ok ? T.webhookTestOk : T.webhookTestFail + ' HTTP ' + r.status)
+        } catch (e) { setError(T.webhookTestFail + ' ' + String((e && e.message) || e).slice(0, 60)) }
+      }
+      const requestNotify = () => {
+        if (typeof Notification !== 'undefined') {
+          Notification.requestPermission().then((p) => setError(p === 'granted' ? T.notifyGranted : T.notifyDenied))
+        } else setError(T.notifyUnsupported)
+      }
+      // v2.6-2: 熔断桌面通知（status 变为 paused 时弹出一次）
+      const prevPausedRef = useRef(false)
+      useEffect(() => {
+        if (!stepState) return
+        const paused = stepState.status === 'paused'
+        if (paused && !prevPausedRef.current) {
+          try {
+            if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+              new Notification(T.notificationBreakerTitle, {
+                body: (stepState.stopReason || '连续打回 ≥3 次，自动暂停') + (stepState.rejectStreak ? '（rejectStreak: ' + String(stepState.rejectStreak) + '）' : '')
+              })
+            }
+          } catch (e) { /* ignore */ }
+        }
+        prevPausedRef.current = paused
+      }, [stepState])
       const [contextRecords, setContextRecords] = useState(null)
       const [contextText, setContextText] = useState('')
       const [contextCopied, setContextCopied] = useState(false)
@@ -1623,6 +1686,18 @@ window.__ModuleLoader__.load({
                   : active.protocol
                 return pick ? pick.text : protocol.text
               })())
+          ),
+          // v2.6-2: Webhook 通知配置（URL + 保存 + 测试）+ 桌面通知开关
+          h('div', { style: { display: 'flex', gap: 6, alignItems: 'center', margin: '2px 0', flexWrap: 'wrap' } },
+            h('input', {
+              value: webhookUrl,
+              onChange: (e) => setWebhookUrl(e.target.value),
+              placeholder: T.webhookPlaceholder,
+              style: { ...inputStyle, margin: 0, flex: 1, fontSize: 11, minWidth: 140 }
+            }),
+            h('button', { onClick: saveWebhook, className: 'dwr-ghost', style: { ...btnGhostStyle, padding: '2px 8px', fontSize: 11 } }, T.btn.webhookSave),
+            h('button', { onClick: testWebhook, className: 'dwr-ghost', style: { ...btnGhostStyle, padding: '2px 8px', fontSize: 11 } }, T.btn.webhookTest),
+            h('button', { onClick: requestNotify, className: 'dwr-ghost', style: { ...btnGhostStyle, padding: '2px 8px', fontSize: 11 } }, T.btn.notifyOn)
           ),
           h('select', {
             value: provider,
