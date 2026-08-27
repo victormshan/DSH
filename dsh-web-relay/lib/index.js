@@ -1499,6 +1499,9 @@ export function apply(ctx) {
             : (parsedSteps.length > 0 ? 'executing' : null)
         if (phase || parsedSteps.length > 0) {
           try {
+            // v1.4.0: AutoIteration 声明持久化（原缺陷：askHandler 写 stepState 未含迭代字段，
+            // 导致 prompt 中 {"iterations":N,...} 声明丢失、版间门无法推进；现与 executeHandler 对齐）
+            const ai = extractAutoIterDecl(`${prompt}\n${answer}`)
             await writeStepState(base, id, {
               exprId: id,
               currentStep: null,
@@ -1508,6 +1511,11 @@ export function apply(ctx) {
                 contextRequests: (planning && Array.isArray(planning.context_requests)) ? planning.context_requests : [],
               autoReview: provider === 'gemini-free',
               protocolVersion,
+              iterations: ai.iterations,
+              currentIteration: 1,
+              finalAcceptance: ai.finalAcceptance,
+              autoDecision: ai.autoDecision,
+              rejectStreak: 0,
               steps: parsedSteps
             }, safePolicy)
           } catch (err) { /* step state is auxiliary */ }
@@ -1998,6 +2006,8 @@ export function apply(ctx) {
         const stepId = payload.stepId != null ? String(payload.stepId) : ''
         const action = String(payload.action || '')
         const comment = String(payload.comment || '')
+        // v1.4.0: steps/update 支持挂载 artifacts（complete 时追加写入；null=未传，不覆盖已有产物）
+        const artifacts = Array.isArray(payload.artifacts) ? payload.artifacts.map((x) => String(x)).filter(Boolean) : null
         const role = Object.prototype.hasOwnProperty.call(ROLE_LABEL, payload.role) ? payload.role : 'mainagent'
         const sessionId = typeof payload.sessionId === 'string' ? payload.sessionId.trim() : ''
           const autoReview = payload.autoReview === true
@@ -2051,6 +2061,11 @@ export function apply(ctx) {
           if (!state.activeSteps.some((x) => String(x) === String(step.id))) state.activeSteps.push(String(step.id))
           traceText = `开始执行 Step ${step.id}：${step.title}`
         } else if (action === 'complete') {
+          // v1.4.0: complete 时挂载 artifacts（追加语义 + 去重；未传 artifacts 则保留现有产物）
+          if (artifacts !== null) {
+            const merged = new Set([...(Array.isArray(step.artifacts) ? step.artifacts : []), ...artifacts])
+            step.artifacts = [...merged]
+          }
           // v1.8 混合模式：review:false 硬开关无条件绕过；importance=low 且未显式指定 review → 主 agent 自动豁免
           autoPass = step.review === false || (step.importance === 'low' && !step.reviewSpecified)
           if (autoPass) {

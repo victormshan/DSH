@@ -1,6 +1,6 @@
 {
   "name": "dsh-web-relay",
-  "version": "1.3.1",
+  "version": "1.4.0",
   "description": "Experimental free-web relay: Gemini free API or manual paste; structured-instruction preview/confirm/execute with server-side re-parse (json:agent-action + Gemini Action Payload protocol); protocol v1.5/v1.6/v1.7: three-tier review degradation (external AI → dialog model no-tools → manual) with reviewedBy, artifact_required tolerance, Step List DAG parallel scheduling (depends_on / parallel_group), v1.7 multi-plan comparison (alternatives), step importance (high/medium/low + batch review), bidirectional planning (5-section context template), artifacts pre-flight check, per-turn fixed-cost model (minimize turns); workflow progress rail, in-panel manual review + one-click finalize, smart context packing, planning probe cache, ZH/EN locale, protocol version selector, reviewer badges",
   "private": true,
   "type": "module",
