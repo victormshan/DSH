@@ -99,3 +99,9 @@ test('source 源码含 v1.5.1 修复标记（context 排序 + slice 放宽）', 
   assert.ok(client.includes('v1.5.1: 实验选择下拉'))
   assert.ok(client.includes('v1.5.1: 面板打开时拉取 context 记录列表'))
 })
+
+test('source 源码含 v1.5.2 修复标记（auxiliary 评审 ask 不创建 stepState）', () => {
+  const src = fs.readFileSync(new URL('../lib/index.js', import.meta.url), 'utf8')
+  assert.ok(src.includes('v1.5.2: auxiliary 评审 ask'))
+  assert.ok(src.includes('payload.auxiliary === true'))
+})

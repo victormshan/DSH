@@ -1497,7 +1497,10 @@ export function apply(ctx) {
           const phase = planning && (planning.phase === 'planning' || Array.isArray(planning.context_requests))
             ? 'planning'
             : (parsedSteps.length > 0 ? 'executing' : null)
-        if (phase || parsedSteps.length > 0) {
+        // v1.5.2: auxiliary 评审 ask（如 AutoIteration 版间门唤醒的评审请求）不创建 stepState——
+        // 评审 Step List 仅供主 agent restructure 参考，不是要执行的状态机；
+        // 避免其 created 较新而被 context"最新任务"自动载入（曾导致面板显示评审参考步骤而非主任务）。
+        if (!(payload.auxiliary === true) && (phase || parsedSteps.length > 0)) {
           try {
             // v1.4.0: AutoIteration 声明持久化（原缺陷：askHandler 写 stepState 未含迭代字段，
             // 导致 prompt 中 {"iterations":N,...} 声明丢失、版间门无法推进；现与 executeHandler 对齐）
