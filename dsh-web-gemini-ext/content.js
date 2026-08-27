@@ -97,10 +97,10 @@ function freshReplyLen(baseCount) {
   return target ? (target.textContent || '').trim().length : 0
 }
 
-// ---- MutationObserver + 定时器判定回复完成（基线法，纯文本稳定判定）----
-// 关键：Gemini 回复可能一次性渲染（非流式），MutationObserver 只触发一次；
-// 因此用 setTimeout 定时判定（len 每次变化后重置 2s 定时器，停止变化 2s 即完成），
-// 不依赖"回调被反复触发"。maxMs 为安全网兜底。
+// ---- MutationObserver + 定时器判定回复完成（基线法，含复查防截断）----
+// 关键：Gemini 长回答生成中可能有 >2s 停顿（文字→代码块切换），
+// 简单稳定判定会误判完成导致抓取截断。因此：稳定 2s 后**复查**——
+// 再等 2s 若文本仍不变才判定完成；文本继续变化则重新计时。
 function waitReply(maxMs, baseCount) {
   return new Promise((resolve) => {
     const deadline = Date.now() + maxMs
@@ -117,10 +117,20 @@ function waitReply(maxMs, baseCount) {
     }
     const scheduleSettle = () => {
       clearTimeout(settleTimer)
-      settleTimer = setTimeout(() => {
-        if (seen && freshReplyLen(baseCount) >= 5) {
-          console.log('[web-gemini] 定时判定完成 len=' + freshReplyLen(baseCount))
+      settleTimer = setTimeout(async () => {
+        if (settled) return
+        if (!seen) return
+        const lenNow = freshReplyLen(baseCount)
+        if (lenNow < 5) { scheduleSettle(); return }
+        // 复查：再等 2s，文本仍相同才判定完成（排除生成中停顿）
+        await new Promise((r) => setTimeout(r, 2000))
+        if (settled) return
+        const lenAfter = freshReplyLen(baseCount)
+        if (lenAfter === lenNow) {
+          console.log('[web-gemini] 完成判定（复查稳定）len=' + lenAfter)
           done()
+        } else {
+          scheduleSettle() // 文本继续变化：重新计时
         }
       }, 2000)
     }
