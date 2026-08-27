@@ -1611,7 +1611,14 @@ export function apply(ctx) {
         } catch (err) { /* skip unreadable */ }
       }
     }
-    return records.sort((a, b) => (a.file < b.file ? 1 : a.file > b.file ? -1 : 0))
+    // v1.5.1: 按创建时间降序（最新任务在前），替代按文件名排序——
+    // 文件名前缀（dsh-web-relay-* / expr-* / validation.md 等）会打乱时间序，
+    // 导致 context 端点"最新任务"误判（本次任务被旧记录/评审 ask 记录挤到后面）。
+    return records.sort((a, b) => {
+      const ta = a.created || ''
+      const tb = b.created || ''
+      return ta < tb ? 1 : ta > tb ? -1 : 0
+    })
   }
 
   async function listTraces(base) {
@@ -1659,7 +1666,9 @@ export function apply(ctx) {
       const url = new URL(req.url || '/', 'http://localhost')
       const cwd = url.searchParams.get('cwd') || ''
       const base = cwd || sandboxPolicy?.workspaceRoot || process.cwd()
-      const records = (await listRecordSummaries(base)).slice(0, 3)
+      // v1.5.1: 前 3 条截断会漏掉最新任务（本次 3 版迭代任务即因此从面板 Step List 消失）；
+      // 放宽到 20 条，前端用实验选择下拉精确切换任意任务。
+      const records = (await listRecordSummaries(base)).slice(0, 20)
       // v0.5: the packaged context carries the web-relay three-party traces
       // instead of the side-window conversation (fully decoupled).
       const traces = await listTraces(base)

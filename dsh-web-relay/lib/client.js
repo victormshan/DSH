@@ -1208,6 +1208,18 @@ window.__ModuleLoader__.load({
           } catch (e) { /* ignore */ }
         }
 
+        // v1.5.1: 面板打开时拉取 context 记录列表（实验选择下拉数据源），
+        // 确保"最新任务"被截断/误判时用户仍可精确切换到任意任务查看 Step List。
+        useEffect(() => {
+          if (!open) return
+          let cancelled = false
+          fetch('/dsh-web-relay/context?cwd=' + encodeURIComponent(workspacePath || ''))
+            .then((r) => (r.ok ? r.json() : null))
+            .then((d) => { if (!cancelled && d && d.ok && Array.isArray(d.records)) setContextRecords(d.records) })
+            .catch(() => { /* ignore */ })
+          return () => { cancelled = true }
+        }, [open, workspacePath])
+
         // v1.3: poll the authoritative Step List state while the panel is open so
         // external status changes (auto-review, other panels, server updates) are
         // reflected without reopening the panel.
@@ -1672,6 +1684,18 @@ window.__ModuleLoader__.load({
             // even when the current panel state is empty after a restart.
             h('div', { style: { marginTop: 8, border: '1px solid var(--dsw-alias-border-l1, #3f3f46)', borderRadius: 6, padding: 8 } },
               h('div', { style: { ...hintStyle, fontWeight: 600, color: '#93c5fd' } }, T.stepListLoad),
+              // v1.5.1: 实验选择下拉（context 记录列表 → 精确切换任意任务；
+              // 修复"最新任务"被 slice 截断/文件名排序误判后面板看不到本次任务的问题）
+              contextRecords && contextRecords.length > 0 && h('div', { style: { display: 'flex', gap: 6, marginTop: 6, alignItems: 'center' } },
+                h('select', {
+                  value: exprId || '',
+                  onChange: (e) => { const v = e.target.value; if (v) loadStepState(v) },
+                  style: { ...inputStyle, margin: 0, flex: 1, fontSize: 12, background: 'var(--dsw-alias-bg-layer-1, #18181b)', color: 'var(--dsw-alias-label-primary, #e4e4e7)' }
+                },
+                  h('option', { value: '' }, T.loadPlaceholder),
+                  contextRecords.map((r) => h('option', { key: r.file, value: r.id || r.file }, (r.id || r.file) + ' · ' + (r.status || '') + (r.channel ? ' · ' + r.channel : '')))
+                )
+              ),
               h('div', { style: { display: 'flex', gap: 6, marginTop: 4, alignItems: 'center' } },
                 h('input', {
                   value: stepLoadId,

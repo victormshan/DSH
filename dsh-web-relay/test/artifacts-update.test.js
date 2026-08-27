@@ -88,3 +88,14 @@ test('source 源码含 v1.4.0 修复标记（artifacts 挂载 + 迭代声明持�
   assert.ok(src.includes('v1.4.0: AutoIteration 声明持久化'))
   assert.ok(src.includes('extractAutoIterDecl(`${prompt}\\n${answer}`)'))
 })
+
+test('source 源码含 v1.5.1 修复标记（context 排序 + slice 放宽）', () => {
+  const src = fs.readFileSync(new URL('../lib/index.js', import.meta.url), 'utf8')
+  const client = fs.readFileSync(new URL('../lib/client.js', import.meta.url), 'utf8')
+  // 后端：按创建时间降序 + slice(0,3)→slice(0,20)
+  assert.ok(src.includes('v1.5.1: 按创建时间降序'))
+  assert.ok(src.includes('v1.5.1: 前 3 条截断会漏掉最新任务'))
+  // 前端：实验选择下拉 + 面板打开拉取记录
+  assert.ok(client.includes('v1.5.1: 实验选择下拉'))
+  assert.ok(client.includes('v1.5.1: 面板打开时拉取 context 记录列表'))
+})
