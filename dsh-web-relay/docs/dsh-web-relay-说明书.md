@@ -1,6 +1,6 @@
 # dsh-web-relay 说明书
 
-> 适用版本：dsh-web-relay 1.3.0  
+> 适用版本：dsh-web-relay 1.5.0  
 > 协议版本：v1.9（向下兼容 v1.5 / v1.6 / v1.7 / v1.8；v1.5 线性为默认，v1.6 / v1.7 / v1.8 / v1.9 均继承 DAG 并发调度）  
 > 文档性质：基于当前实际源码与任务记录整理
 
@@ -32,7 +32,7 @@ dsh-web-relay 是 dsh web profile 中的实验性插件，用于在 dsh 主 agen
 
 ## 3. 协议规范（v1.3 起，含 v1.5 / v1.6 / v1.7 / v1.8）
 
-> 本章是 **dsh-web-relay 三方协作协议 v1.3（延伸至 v1.5 审核降级链、v1.6 并发调度、v1.7 多方案比较与步骤权重、v1.8 混合模式分工、v1.9 自动迭代与全角色降级）的正式规范文本**，属于协议层约定，独立于当前 1.3.0 具体实现。
+> 本章是 **dsh-web-relay 三方协作协议 v1.3（延伸至 v1.5 审核降级链、v1.6 并发调度、v1.7 多方案比较与步骤权重、v1.8 混合模式分工、v1.9 自动迭代与全角色降级）的正式规范文本**，属于协议层约定，独立于当前 1.5.0 具体实现。
 
 ### 3.1 协议范围
 
@@ -362,7 +362,7 @@ v1.8 在 v1.7 多方案比较与步骤权重之上引入**混合模式**：`impo
 
 ---
 
-## 4. 实际实现（1.3.0）
+## 4. 实际实现（1.5.0）
 
 > 以下内容来自当前安装源码。
 
@@ -376,7 +376,7 @@ C:\Users\Administrator\.dsh\profiles\web\node_modules\dsh-web-relay
 
 | 文件 | 作用 |
 |---|---|
-| `package.json` | 插件元数据，version 1.3.0 |
+| `package.json` | 插件元数据，version 1.5.0 |
 | `lib/index.js` | 后端：协议常量、路由、Step List 状态机（含 v1.6 依赖门控与并发调度、v1.8 混合模式与 restructure）、trace 读写 |
 | `lib/client.js` | 前端：面板、Step List UI、审核操作、语言设置/i18n |
 | `cordis.patch.yml` | 插件装配声明 |
@@ -569,11 +569,54 @@ v1.3.0 在 v1.2.1 之上新增（外部 AI 双视角评估批准：草案一 Aut
 
 **要点**：Chrome 对 HTTPS→`127.0.0.1` HTTP 有 PNA/混合内容拦截，扩展 `host_permissions` 只授权 `http://localhost:8899/*`（回环豁免）；扩展上下文 fetch 不受页面 CSP 限制。
 
+### 4.15 AutoIteration 熔断机制实战复盘（v1.5.0 补）
+
+> 实测案例：expr-2026-08-27_15-26-14（web-Gemini × dsh-web-relay v1.9 端到端验证）。
+
+**触发经过**：Step 3（协议状态机与轨迹追加测试，`importance: medium` + `review: true`）要求实体产物（artifacts），但主 agent 首次 complete 时未挂载产物路径——后端 `steps/update` 当时只接受 `exprId/stepId/action/comment/role`，**artifacts 字段被静默丢弃**。外部 AI 连续 3 次打回"artifacts 为空"：
+
+1. 第 1 次打回 → 主 agent 在 complete 的 comment 里补写产物路径（**无效**：comment 不落 artifacts 字段）→ 再提交
+2. 第 2 次打回 → 再次尝试 → 再提交
+3. 第 3 次打回 → **熔断触发**：`rejectStreak ≥ 3` → `status = paused`，stopReason="连续打回 ≥3 次，AutoIteration 自动暂停，等待用户介入"
+
+**恢复闭环**（熔断-恢复全流程实测）：
+
+| 步骤 | 动作 | 结果 |
+|---|---|---|
+| 1 | `steps/update action=resume` | status paused → open（rejectStreak 保留 3） |
+| 2 | `POST /steps/restructure` 重定义 Step 3（补 `artifacts: [trace 路径, 试验记录路径]`） | changes: `{updated:[3], untouchedApproved:2}`，**approved 步骤原样保留** |
+| 3 | reopen → start → complete | status review |
+| 4 | auto-review（web-gemini） | **approved**（审核读到 artifacts 字段）→ `rejectStreak = 0` |
+
+**复盘结论**：
+- 熔断设计有效：阻止无限重试，强制人工/主 agent 介入定位根因；`rejectStreak` 由 approve 清零，resume 不清零（防止绕过熔断）。
+- 根因不是外部 AI 苛刻，而是**后端缺陷**（artifacts 无法挂载）→ 已在本任务 V1（commit `20766f6`）修复：`steps/update` 现支持 complete 时挂载 artifacts（追加语义 + 去重）。
+- 教训：`review:true` 步骤的 artifacts 必须**预声明**（Step List 定义时即给出），或在 complete 时显式传入 `artifacts` 数组；只写进 comment 无效。
+
+### 4.16 restructure 状态隔离实战复盘（v1.5.0 补）
+
+> 实测案例：expr-2026-08-27_15-42-26（dsh-web-relay 自身 3 版 AutoIteration 自举迭代）。
+
+**核心机制**：`POST /dsh-web-relay/steps/restructure` 仅对 `pending` / `rejected` 步骤生效；`approved` 历史步骤与产物**严禁清除/篡改**（即使新数组未包含它们也原样保留）。
+
+**跨版本迭代的 id 冲突解法**：AutoIteration 每版由外部 AI 重新输出 Step List，新步骤 id 常与上版重复（都是 1-4）。若 V2 直接复用 id 1-4，restructure 会把这些 id 视为"更新 approved 步骤"而**跳过**（状态隔离保护）。正确做法：**新版步骤使用全新 id 区间**（V1=1-4 → V2=5-8 → V3=9-12），V1/V2 的 approved 步骤保留为历史，新版 pending 步骤正常添加：
+
+| 版 | restructure changes | 结果 |
+|---|---|---|
+| V1（1-4） | 初始创建 | 4 步 approved |
+| V2（5-8） | `{added:[5,6,7,8], untouchedApproved:4}` | 历史保留 + 新步骤就绪 |
+| V3（9-12） | `{added:[9,10,11,12], untouchedApproved:8}` | 历史保留 + 新步骤就绪 |
+
+**复盘结论**：
+- 状态隔离按协议工作：`untouchedApproved` 计数直观反映"历史步骤未被篡改"。
+- 外部 AI 输出重复步骤（同 id 两遍）时，主 agent 需去重（保留首个）再 restructure，否则 `added` 记录会包含重复 id 的步骤定义。
+- 悬空依赖防护有效：V2 的 Step 6 依赖 5、V3 的 Step 10 依赖 9 等拓扑引用全部通过服务端校验（引用已删除步骤会 400 拒绝）。
+
 ---
 
 ## 5. 使用方法
 
-> 本章基于 dsh-web-relay 1.3.0 实际功能编写。
+> 本章基于 dsh-web-relay 1.5.0 实际功能编写。
 
 ### 5.0 环境配置
 
@@ -829,7 +872,7 @@ dsh web
 
 ## 6. 开发者扩展
 
-> 本章属于开发者扩展指南，基于当前 1.3.0 实际实现；协议规范以第 3 章为准（v1.3 起，含 v1.5 / v1.6 / v1.7 / v1.8 / v1.9）。
+> 本章属于开发者扩展指南，基于当前 1.5.0 实际实现；协议规范以第 3 章为准（v1.3 起，含 v1.5 / v1.6 / v1.7 / v1.8 / v1.9）。
 
 ### 6.1 扩展总览
 
@@ -946,7 +989,7 @@ web-relay/traces/expr-<ts>.md
 
 ### 6.7 自动审核
 
-当前 1.3.0 已提供自动审核接口：
+当前 1.5.0 已提供自动审核接口：
 
 ```text
 POST /dsh-web-relay/steps/auto-review
@@ -1016,7 +1059,7 @@ body { workspacePath, exprId, stepId?, sessionId? }
 
 ## 9. 结论
 
-dsh-web-relay 1.3.0 已实现：
+dsh-web-relay 1.5.0 已实现：
 
 - v1.8 协议（v1.3 Step List 基础 + v1.4 Planning + v1.5 审核降级链 + v1.6 Step List 并发调度 + v1.7 多方案比较与步骤权重 + v1.8 混合模式分工）
 - v1.5 线性为默认、v1.6 / v1.7 / v1.8 均继承并发调度，多版本向后兼容
