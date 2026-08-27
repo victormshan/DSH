@@ -1,6 +1,6 @@
 # dsh-web-relay 说明书
 
-> 适用版本：dsh-web-relay 2.0.0  
+> 适用版本：dsh-web-relay 2.2.0  
 > 协议版本：v1.9（向下兼容 v1.5 / v1.6 / v1.7 / v1.8；v1.5 线性为默认，v1.6 / v1.7 / v1.8 / v1.9 均继承 DAG 并发调度）  
 > 文档性质：基于当前实际源码与任务记录整理
 
@@ -32,7 +32,7 @@ dsh-web-relay 是 dsh web profile 中的实验性插件，用于在 dsh 主 agen
 
 ## 3. 协议规范（v1.3 起，含 v1.5 / v1.6 / v1.7 / v1.8）
 
-> 本章是 **dsh-web-relay 三方协作协议 v1.3（延伸至 v1.5 审核降级链、v1.6 并发调度、v1.7 多方案比较与步骤权重、v1.8 混合模式分工、v1.9 自动迭代与全角色降级）的正式规范文本**，属于协议层约定，独立于当前 2.0.0 具体实现。
+> 本章是 **dsh-web-relay 三方协作协议 v1.3（延伸至 v1.5 审核降级链、v1.6 并发调度、v1.7 多方案比较与步骤权重、v1.8 混合模式分工、v1.9 自动迭代与全角色降级）的正式规范文本**，属于协议层约定，独立于当前 2.2.0 具体实现。
 
 ### 3.1 协议范围
 
@@ -362,7 +362,7 @@ v1.8 在 v1.7 多方案比较与步骤权重之上引入**混合模式**：`impo
 
 ---
 
-## 4. 实际实现（2.0.0）
+## 4. 实际实现（2.2.0）
 
 > 以下内容来自当前安装源码。
 
@@ -659,11 +659,24 @@ v1.3.0 在 v1.2.1 之上新增（外部 AI 双视角评估批准：草案一 Aut
 
 **经验**：外部 AI 对"升级"类任务的规划需主 agent 核查——它可能因上下文缺失把**已有功能当新需求重造**；主 agent 用"代码位置证据"止损并重新定向（restructure），是三方协作中执行判断力的关键环节。
 
+### 4.19 v2.2.0 运维自愈双迭代（expr-2026-08-27_22-15-02）
+
+> 用户发起"再升级 2 个迭代"（expr-2026-08-27_22-15-02）。外部 AI 规划方向正确（真实增量，无重造），聚焦**调试研发效能 + 系统告警自愈**，全部实施 + 外部/dialog 审核通过。
+
+| 迭代 | 增量 | 实现位置 | 关键实测 |
+|---|---|---|---|
+| v2.5 | **Trace Replay 离线沙盒**：`POST /dsh-web-relay/replay` 按 exprId+stepId 离线还原步骤 timeline（notes 状态流转序列）、最终审核记录（lastRev）、相关三方发言（start 时间起 20 条）——纯本地读取，不发起外部 AI | `lib/index.js` | replayHandler + offline:true |
+| v2.6 | **Webhook 通知中心**：`DSH_RELAY_WEBHOOK_URL` 配置 + `notifyWebhook` fire-and-forget（失败静默）；熔断（circuit_breaker）/降级（degradation）/审核打回（review_rejected）三触发点；面板通知中心（URL 配置保存/测试发送/桌面 Notification 权限） | `lib/index.js` + `lib/client.js` | 熔断状态变化触发桌面 Notification（prevPausedRef 去重） |
+
+**回归与发布**：全量测试 56/56 通过（9 个测试文件）；package.json 2.1.1 → **2.2.0**；git tag v2.2.0 push victormshan/DSH。
+
+**用法**：面板通知中心行输入 Webhook URL → 保存 → 测试；后端也可用 `DSH_RELAY_WEBHOOK_URL` 环境变量（优先）。熔断 paused 时浏览器桌面通知自动弹出（需先授权）。
+
 ---
 
 ## 5. 使用方法
 
-> 本章基于 dsh-web-relay 2.0.0 实际功能编写。
+> 本章基于 dsh-web-relay 2.2.0 实际功能编写。
 
 ### 5.0 环境配置
 
@@ -919,7 +932,7 @@ dsh web
 
 ## 6. 开发者扩展
 
-> 本章属于开发者扩展指南，基于当前 2.0.0 实际实现；协议规范以第 3 章为准（v1.3 起，含 v1.5 / v1.6 / v1.7 / v1.8 / v1.9）。
+> 本章属于开发者扩展指南，基于当前 2.2.0 实际实现；协议规范以第 3 章为准（v1.3 起，含 v1.5 / v1.6 / v1.7 / v1.8 / v1.9）。
 
 ### 6.1 扩展总览
 
@@ -1036,7 +1049,7 @@ web-relay/traces/expr-<ts>.md
 
 ### 6.7 自动审核
 
-当前 2.0.0 已提供自动审核接口：
+当前 2.2.0 已提供自动审核接口：
 
 ```text
 POST /dsh-web-relay/steps/auto-review
@@ -1106,7 +1119,7 @@ body { workspacePath, exprId, stepId?, sessionId? }
 
 ## 9. 结论
 
-dsh-web-relay 2.0.0 已实现：
+dsh-web-relay 2.2.0 已实现：
 
 - v1.8 协议（v1.3 Step List 基础 + v1.4 Planning + v1.5 审核降级链 + v1.6 Step List 并发调度 + v1.7 多方案比较与步骤权重 + v1.8 混合模式分工）
 - v1.5 线性为默认、v1.6 / v1.7 / v1.8 均继承并发调度，多版本向后兼容
