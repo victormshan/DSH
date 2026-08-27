@@ -179,7 +179,7 @@ window.__ModuleLoader__.load({
         circuitBreakerTitle: '⛔ 熔断已触发（连续打回 ≥3 次，自动暂停）',
         versionGateLabel: '版本',
         badgePaused: '已熔断（paused）',
-        dagPreviewTitle: 'DAG 拓扑（点击节点展开明细）',
+        dagPreviewTitle: 'DAG 拓扑（点击节点定位步骤；low 步骤展开明细）',
         badgeWaitReview: '等待审核',
         badgeExecuting: '主 agent 执行中',
         badgeDone: '已完成',
@@ -318,7 +318,7 @@ window.__ModuleLoader__.load({
         circuitBreakerTitle: '⛔ Circuit breaker tripped (≥3 consecutive rejects, auto-paused)',
         versionGateLabel: 'Version',
         badgePaused: 'Paused (circuit open)',
-        dagPreviewTitle: 'DAG topology (click a node to expand)',
+        dagPreviewTitle: 'DAG topology (click to locate; low steps expand)',
         badgeWaitReview: 'Awaiting review',
         badgeExecuting: 'Main agent running',
         badgeDone: 'Done',
@@ -526,6 +526,7 @@ window.__ModuleLoader__.load({
         const [stepBusyAction, setStepBusyAction] = useState('')
         // v1.7: low 优先级步骤详情展开状态 + 候选方案展开状态（均按 stepId 记录）
         const [lowExpanded, setLowExpanded] = useState({})
+      const [dagFocus, setDagFocus] = useState(null)   // v2.1.1: DAG 点击定位高亮的步骤 id
         const [altOpen, setAltOpen] = useState({})
         // v1.6/v1.7/v1.8: 协议版本选择（v1.5 线性 / v1.6 DAG 并发 / v1.7 智能编排 / v1.8 混合模式），localStorage 持久化
         const [protocolVersion, setProtocolVersion] = useState(() => {
@@ -1866,13 +1867,18 @@ window.__ModuleLoader__.load({
                     h('div', { style: { display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' } },
                       layer.map((s) => h('span', {
                         key: String(s.id),
-                        onClick: () => setLowExpanded((prev) => ({ ...prev, [String(s.id)]: !prev[String(s.id)] })),
+                        // v2.1.1: low 步骤切换展开明细；所有步骤定位高亮列表项 2.5s
+                        onClick: () => {
+                          if (s.importance === 'low') setLowExpanded((prev) => ({ ...prev, [String(s.id)]: !prev[String(s.id)] }))
+                          setDagFocus(String(s.id))
+                          setTimeout(() => setDagFocus((f) => (f === String(s.id) ? null : f)), 2500)
+                        },
                         title: s.title,
                         style: {
                           fontSize: 11, cursor: 'pointer', padding: '2px 8px', borderRadius: 4, whiteSpace: 'nowrap',
                           color: 'var(--dsw-alias-label-primary, #e4e4e7)',
                           border: '1px solid ' + colorOfStatus(s.status),
-                          background: 'rgba(24,24,27,.6)'
+                          background: String(s.id) === dagFocus ? 'rgba(96,165,250,.25)' : 'rgba(24,24,27,.6)'
                         }
                       },
                         h('span', { style: { display: 'inline-block', width: 8, height: 8, borderRadius: 4, marginRight: 6, background: colorOfStatus(s.status) } }),
@@ -1888,7 +1894,7 @@ window.__ModuleLoader__.load({
                 // v1.7 T1: importance 徽标 + low 步骤默认折叠（仅标题行，可展开）
                 const lowStep = s.importance === 'low'
                 const lowOpen = !!lowExpanded[String(s.id)]
-                return h('div', { key: s.id, style: { marginTop: 6, padding: 6, background: 'var(--dsw-alias-bg-layer-1, #18181b)', border: '1px solid var(--dsw-alias-border-l1, #3f3f46)', borderRadius: 6 } },
+                return h('div', { key: s.id, style: { marginTop: 6, padding: 6, background: 'var(--dsw-alias-bg-layer-1, #18181b)', border: '1px solid ' + (String(s.id) === dagFocus ? '#60a5fa' : 'var(--dsw-alias-border-l1, #3f3f46)'), borderRadius: 6, boxShadow: String(s.id) === dagFocus ? '0 0 0 1px rgba(96,165,250,.4)' : 'none', transition: 'border-color .2s, box-shadow .2s' } },
                   h('div', { style: { display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' } },
                     h('span', { style: { color: '#93c5fd', fontWeight: 600 } }, `Step ${s.id}`),
                     // v1.7: importance 徽标（high 红 / medium 黄 / low 灰）

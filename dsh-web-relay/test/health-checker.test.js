@@ -75,3 +75,11 @@ test('source 源码含 v2.1.0 修复标记（content 双信号防截断 + planni
   assert.ok(client.includes('planningPastePlaceholder'))
   assert.ok(client.includes('parsePlanning'))
 })
+
+test('source 源码含 v2.1.1 修复标记（DAG 点击定位高亮 + low 展开）', () => {
+  const client = fs.readFileSync(new URL('../lib/client.js', import.meta.url), 'utf8')
+  assert.ok(client.includes('v2.1.1: DAG 点击定位高亮的步骤 id'))
+  assert.ok(client.includes('v2.1.1: low 步骤切换展开明细'))
+  assert.ok(client.includes('setDagFocus'))
+  assert.ok(client.includes('dagFocus'))
+})
