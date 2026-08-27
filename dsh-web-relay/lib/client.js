@@ -1914,6 +1914,24 @@ window.__ModuleLoader__.load({
                 h('button', { onClick: () => loadStepState(stepLoadId), disabled: stepBusy, className: 'dwr-ghost', style: { ...btnGhostStyle, padding: '4px 10px', fontSize: 12 } }, T.btn.load),
                 h('button', { onClick: () => loadLatestTask(), disabled: stepBusy, className: 'dwr-ghost', style: { ...btnGhostStyle, padding: '4px 10px', fontSize: 12 } }, T.btn.refresh),
                 h('button', { onClick: clearStepState, disabled: stepBusy, className: 'dwr-ghost', style: { ...btnGhostStyle, padding: '4px 10px', fontSize: 12 } }, T.btn.clear)
+              ),
+              // v2.2.1-2: 独立 Replay 入口（不依赖步骤卡片操作区；从当前任务选步骤离线复现）
+              exprId && steps && steps.length > 0 && h('div', { style: { display: 'flex', gap: 6, marginTop: 4, alignItems: 'center' } },
+                h('span', { style: { fontSize: 11, color: '#a1a1aa', whiteSpace: 'nowrap' } }, T.replayTitle),
+                h('select', {
+                  value: replayStepId,
+                  onChange: (e) => setReplayStepId(e.target.value),
+                  style: { ...inputStyle, margin: 0, flex: 1, fontSize: 12 }
+                },
+                  h('option', { value: '' }, T.replayPickStep),
+                  steps.map((s) => h('option', { key: String(s.id), value: String(s.id) }, 'Step ' + s.id + ' · ' + (T.status[s.status] || s.status)))
+                ),
+                h('button', {
+                  onClick: () => { if (replayStepId) runReplay(replayStepId) },
+                  disabled: !replayStepId || stepBusy,
+                  className: 'dwr-ghost',
+                  style: { ...ghostPurple, padding: '4px 10px', fontSize: 12, opacity: (!replayStepId || stepBusy) ? 0.6 : 1 }
+                }, T.btn.replayRun)
               )
             ),
 
