@@ -1121,9 +1121,9 @@ window.__ModuleLoader__.load({
 
         // v1.4: switch phase, e.g. planning -> executing.
         const setExperimentPhase = async (nextPhase) => {
-          if (!exprId) return
+          if (!exprId) { setError('缺少 exprId（请先发起任务），无法切换阶段'); return }
           const stepId = (stepState && stepState.currentStep) || (steps && steps[0] && steps[0].id)
-          if (!stepId) return
+          if (!stepId) { setError('缺少 stepId（Step List 为空），无法切换阶段'); return }
           setStepBusy(true); setError('')
           try {
             const resp = await fetch('/dsh-web-relay/steps/update', {
@@ -1222,14 +1222,16 @@ window.__ModuleLoader__.load({
 
 
       // gemini-free: plain question (no instruction flow in this version)
-      const submitGemini = async () => {
+      // v1.9: 统一"提问"通道（gemini-free / claude / web-gemini）——走 /ask，provider 参数化
+      const submitAsk = async (provider) => {
         if (!prompt.trim()) { setError('请填写提问内容'); return }
         setError(''); setSending(true); setAnswer(''); setSavedPath(''); setPhase('working')
         try {
+          const finalPrompt = provider === 'gemini-free' && architectMode ? '[MODE: ARCHITECT_PLANNING_v1.4]\n' + prompt : prompt
           const resp = await fetch('/dsh-web-relay/ask', {
             method: 'POST',
             headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ provider: 'gemini-free', prompt: architectMode ? '[MODE: ARCHITECT_PLANNING_v1.4]\n' + prompt : prompt, answer: '', workspacePath, sessionId, protocolVersion })
+            body: JSON.stringify({ provider, prompt: finalPrompt, answer: '', workspacePath, sessionId, protocolVersion })
           })
           const data = await resp.json().catch(() => ({ ok: false, error: 'bad response' }))
           if (!data.ok) { setError(data.error || 'request failed'); return }
@@ -1356,7 +1358,7 @@ window.__ModuleLoader__.load({
       const onEnterSubmit = (e) => {
         if (e.key === 'Enter' && !e.shiftKey) {
           e.preventDefault()
-          if (provider === 'gemini-free') submitGemini()
+          if (provider === 'gemini-free' || provider === 'claude' || provider === 'web-gemini') submitAsk(provider)
           else if (phase === 'input') submitManual()
         }
       }
@@ -1412,10 +1414,10 @@ window.__ModuleLoader__.load({
 
       // footer actions depend on phase
       let footer = null
-      if (provider === 'gemini-free') {
+      if (provider === 'gemini-free' || provider === 'claude' || provider === 'web-gemini') {
         const stopped = stepState && stepState.status === 'stopped'
         footer = h('div', { style: { display: 'flex', gap: 8, alignItems: 'center', width: '100%' } },
-          h('button', { onClick: submitGemini, disabled: sending, style: { ...btnStyle, opacity: sending ? 0.6 : 1 } },
+          h('button', { onClick: () => submitAsk(provider), disabled: sending, style: { ...btnStyle, opacity: sending ? 0.6 : 1 } },
             sending ? T.btn.asking : T.btn.ask),
           exprId && !stopped && h('button', {
             onClick: stopExperiment,
