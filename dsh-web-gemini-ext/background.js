@@ -29,6 +29,14 @@ async function pollOnce() {
           body: JSON.stringify({ id: d.task.id, answer: resp.answer })
         })
         console.log('[web-gemini] 任务', d.task.id, '已回传, 长度', resp.answer.length)
+      } else if (resp && resp.error) {
+        // 处理失败：把诊断错误上报 bridge（webGeminiAsk 可读取）
+        await bridgeFetch('/submit-error', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ id: d.task.id, error: String(resp.error).slice(0, 500) })
+        })
+        console.warn('[web-gemini] 任务', d.task.id, '失败:', String(resp.error).slice(0, 200))
       } else {
         console.warn('[web-gemini] 任务', d.task.id, '处理未返回答案（content script 可能未注入，请刷新 Gemini 标签页）')
       }

@@ -18,10 +18,20 @@ function getInput() {
   })
   return chat || candidates[candidates.length - 1] || null
 }
-function getSendButton() {
+function getSendButton(input) {
   const btns = [...document.querySelectorAll('button')]
-  // 宽泛匹配：aria-label / title / textContent 含 send/发送/message/消息/stop(停止态也在发送按钮上)
-  const send = btns.find((b) => {
+  // 若给了输入框，优先在其祖先容器内找发送按钮（避免匹配页面其他按钮）
+  let scope = btns
+  if (input) {
+    let el = input.parentElement, hops = 0
+    while (el && hops < 5) {
+      const inScope = btns.filter((b) => el.contains(b))
+      if (inScope.length > 0) { scope = inScope; break }
+      el = el.parentElement
+      hops++
+    }
+  }
+  const send = scope.find((b) => {
     const label = ((b.getAttribute('aria-label') || '') + ' ' + (b.getAttribute('title') || '')).toLowerCase()
     const text = (b.textContent || '').toLowerCase()
     return (label.includes('send') || label.includes('发送') || label.includes('stop') || label.includes('停止')) ||
@@ -87,33 +97,39 @@ function freshReplyLen(baseCount) {
   return target ? (target.textContent || '').trim().length : 0
 }
 
-// ---- MutationObserver 精确判定回复完成（基线法）----
-// 发送前记录回复节点基线 baseCount；观察新回复节点：峰值 ≥5 字符 + 发送按钮可点 + 稳定 3s → 完成。
+// ---- MutationObserver + 定时器判定回复完成（基线法，纯文本稳定判定）----
+// 关键：Gemini 回复可能一次性渲染（非流式），MutationObserver 只触发一次；
+// 因此用 setTimeout 定时判定（len 每次变化后重置 2s 定时器，停止变化 2s 即完成），
+// 不依赖"回调被反复触发"。maxMs 为安全网兜底。
 function waitReply(maxMs, baseCount) {
   return new Promise((resolve) => {
     const deadline = Date.now() + maxMs
     let lastLen = -1
-    let peakLen = 0
-    let stableSince = 0
+    let seen = false
     let settled = false
+    let settleTimer = null
     const done = () => {
       if (settled) return
       settled = true
+      clearTimeout(settleTimer)
       observer.disconnect()
       resolve(grabReply(baseCount))
     }
+    const scheduleSettle = () => {
+      clearTimeout(settleTimer)
+      settleTimer = setTimeout(() => {
+        if (seen && freshReplyLen(baseCount) >= 5) {
+          console.log('[web-gemini] 定时判定完成 len=' + freshReplyLen(baseCount))
+          done()
+        }
+      }, 2000)
+    }
     const observer = new MutationObserver(() => {
-      const send = getSendButton()
-      const len = freshReplyLen(baseCount)
       const now = Date.now()
+      const len = freshReplyLen(baseCount)
       if (now > deadline) { done(); return }
-      if (len > peakLen) peakLen = len
-      if (len !== lastLen) { lastLen = len; stableSince = now; return }
-      // 完成判定：峰值 ≥5 字符 + 发送按钮可点（停止态结束）+ 稳定 3s（避免捕获生成中的短帧/乱码）
-      if (peakLen >= 5 && send && !send.disabled && now - stableSince > 3000) {
-        console.log('[web-gemini] 判定完成 peakLen=' + peakLen + ' len=' + len)
-        done()
-      }
+      if (len >= 5) seen = true
+      if (len !== lastLen) { lastLen = len; scheduleSettle() }
     })
     observer.observe(document.body, { childList: true, subtree: true, characterData: true })
     setTimeout(() => { done() }, maxMs + 5000)
@@ -133,17 +149,20 @@ async function handleTask(task) {
     '| 填入后内容前40:', JSON.stringify(verify.slice(0, 40)),
     '| 发送按钮:', send ? (send.getAttribute('aria-label') || send.textContent || '?').trim().slice(0, 20) : '未找到',
     '| 基线回复数:', baseCount)
-  // 发送：Enter 键优先（最通用，Gemini 输入框 Enter=发送），按钮点击备选
-  let sent = false
-  const sendBtn = getSendButton()
-  if (sendBtn) {
+  // 发送：填入后等待发送按钮可用（Gemini 输入有效后 disabled→enabled）再点击；
+  // 找不到/不可用则 Enter 发送。
+  let sendBtn = getSendButton(input)
+  const waitBtn = Date.now() + 3000
+  while (sendBtn && sendBtn.disabled && Date.now() < waitBtn) {
+    await sleep(300)
+    sendBtn = getSendButton(input)
+  }
+  if (sendBtn && !sendBtn.disabled) {
     sendBtn.click()
-    sent = true
-    console.log('[web-gemini] 点击发送按钮:', (sendBtn.getAttribute('aria-label') || sendBtn.textContent || '?').trim().slice(0, 20))
+    console.log('[web-gemini] 点击发送按钮:', (sendBtn.getAttribute('aria-label') || sendBtn.textContent || '?').trim().slice(0, 20), '| disabled:', sendBtn.disabled)
   } else {
     pressEnter(input)
-    sent = true
-    console.log('[web-gemini] 未找到发送按钮，改用 Enter 发送')
+    console.log('[web-gemini] 发送按钮不可用/未找到（disabled=' + (sendBtn ? sendBtn.disabled : 'n/a') + '），改用 Enter 发送')
   }
   // 发送确认：发送成功输入框会清空；1.5s 后未清空则 Enter 重试一次
   await sleep(1500)
@@ -153,10 +172,17 @@ async function handleTask(task) {
     pressEnter(input)
     await sleep(1000)
     const after2 = input.isContentEditable ? (input.textContent || '') : (input.value || '')
-    if (after2.trim()) { console.error('[web-gemini] 发送仍失败，输入框残留内容'); }
+    if (after2.trim()) {
+      const diag = 'SEND_FAIL: 输入框类型=' + (input.isContentEditable ? 'contenteditable' : 'textarea') +
+        ' | 填入后内容前40=' + JSON.stringify(verify.slice(0, 40)) +
+        ' | 按钮=' + (sendBtn ? (sendBtn.getAttribute('aria-label') || sendBtn.textContent || '?').trim().slice(0, 20) + '(disabled=' + sendBtn.disabled + ')' : '未找到') +
+        ' | 重试后残留=' + JSON.stringify(after2.slice(0, 30))
+      console.error('[web-gemini]', diag)
+      throw new Error(diag)
+    }
   }
   console.log('[web-gemini] 已发送任务', task.id)
-  const answer = await waitReply(120000, baseCount)
+  const answer = await waitReply(60000, baseCount)
   console.log('[web-gemini] 任务', task.id, '回复完成, 长度', answer.length, '| 内容前40:', JSON.stringify(answer.slice(0, 40)))
   return answer
 }
@@ -165,7 +191,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg && msg.type === 'handle-task') {
     handleTask(msg.task)
       .then((answer) => sendResponse({ answer }))
-      .catch((e) => { console.error('[web-gemini] 处理失败:', e); sendResponse({ answer: '' }) })
+      .catch((e) => { console.error('[web-gemini] 处理失败:', e && e.message); sendResponse({ answer: '', error: (e && e.message) || String(e) }) })
     return true // 异步 sendResponse
   }
   return false
