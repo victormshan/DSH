@@ -70,6 +70,7 @@ test('source 源码含 v2.2-1 摘要注入标记（lib/index.js）', () => {
   const src = fs.readFileSync(new URL('../lib/index.js', import.meta.url), 'utf8')
   assert.ok(src.includes('v2.2-1: 上一步产物摘要'))
   assert.ok(src.includes('buildArtifactsSummary'))
-  assert.ok(src.includes('buildReviewPrompt(exprId, step, recordText, traceText, reviewer, artifactsSummary)'))
+  // v3.1-2: 签名扩展为 7 参（增加 caseBlock 历史拒收案例注入）
+  assert.ok(src.includes('buildReviewPrompt(exprId, step, recordText, traceText, reviewer, artifactsSummary, caseBlock)'))
   assert.ok(src.includes('artifactsSummary ? artifactsSummary :'))
 })

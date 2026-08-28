@@ -510,6 +510,89 @@ export function apply(ctx) {
       ? String(workspacePath).trim()
       : (sandboxPolicy?.workspaceRoot || process.cwd())
 
+  // ---------- V3.1: Prompt 自主进化·拒收原因聚类与案例库（轻量版）----------
+  // 聚类规则：rejected reason → 类别（缺产物/未达验收/证据不足/路径问题/语法错误/其他）
+  const REJECT_CATEGORIES = [
+    { id: 'missing_artifact', keywords: ['artifacts', '产物', 'artifact', '未挂载'] },
+    { id: 'acceptance_gap', keywords: ['验收', 'acceptance', '未满足', '不符合', '未达到'] },
+    { id: 'evidence_insufficient', keywords: ['证据', '未提交', '核查', 'notes', '未提供'] },
+    { id: 'path_issue', keywords: ['路径', 'path', '无法读取', '不存在', '越界'] },
+    { id: 'syntax_error', keywords: ['语法', 'syntax', '解析失败', 'SyntaxError'] }
+  ]
+  function categorizeRejection(reason) {
+    const src = String(reason || '').toLowerCase()
+    for (const c of REJECT_CATEGORIES) {
+      if (c.keywords.some((k) => src.includes(k.toLowerCase()))) return c.id
+    }
+    return 'other'
+  }
+
+  // 读案例库（experiments/prompt-case-library.md）→ 解析案例列表
+  async function readCaseLibrary(base) {
+    try {
+      const target = await fs.resolve(`${EXPERIMENTS_DIR}/prompt-case-library.md`, { cwd: base })
+      const text = await fs.readText(target).catch(() => '')
+      const cases = []
+      const re = /## 案例 (\d+)[\s\S]*?exprId: ([^\n]+)[\s\S]*?stepId: ([^\n]+)[\s\S]*?category: ([^\n]+)[\s\S]*?reason: ([^\n]+)[\s\S]*?recordedAt: ([^\n]+)/g
+      let m
+      while ((m = re.exec(text)) !== null) {
+        cases.push({ seq: Number(m[1]), exprId: m[2].trim(), stepId: m[3].trim(), category: m[4].trim(), reason: m[5].trim(), recordedAt: m[6].trim() })
+      }
+      return cases
+    } catch (err) { return [] }
+  }
+
+  // 按主题匹配 + Top-K≤3 生成注入段（无匹配/空库 → ''）
+  async function buildCaseBlock(base, step) {
+    const cases = await readCaseLibrary(base)
+    if (cases.length === 0) return ''
+    const topic = String((step && (step.detail + ' ' + step.acceptance)) || '').toLowerCase()
+    const scored = cases
+      .map((c) => {
+        const r = c.reason.toLowerCase()
+        let score = 0
+        for (const k of topic.split(/\s+/)) if (k.length > 2 && r.includes(k.toLowerCase())) score++
+        if (topic.includes(c.category)) score += 2
+        return { c, score }
+      })
+      .filter((x) => x.score > 0)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 3)   // Top-K 硬上限 3（防 Prompt 膨胀）
+    if (scored.length === 0) return ''
+    return '【历史拒收案例（V3.1 反思注入，Top-K≤3）】\n' + scored
+      .map((x, i) => `${i + 1}. [${x.c.category}] ${x.c.reason.slice(0, 300)}（${x.c.exprId} Step ${x.c.stepId}）`)
+      .join('\n')
+  }
+
+  // 收口时扫描 rejected 步骤 reason 聚类，幂等追加案例库（finalize 调用，后台静默）
+  async function collectRejectedCases(state, base, safePolicy) {
+    try {
+      const rejected = (state.steps || []).filter((s) => s.status === 'rejected')
+      if (rejected.length === 0) return 0
+      const existing = await readCaseLibrary(base)
+      const existingKeys = new Set(existing.map((c) => `${c.exprId}:${c.stepId}`))
+      const target = await fs.resolve(`${EXPERIMENTS_DIR}/prompt-case-library.md`, { cwd: base }).catch(() => null)
+      let text = ''
+      try { text = await fs.readText(target) } catch (err) { text = '' }
+      let added = 0
+      let seq = existing.length
+      for (const s of rejected) {
+        const key = `${state.exprId}:${s.id}`
+        if (existingKeys.has(key)) continue
+        const lastRev = [...(s.notes || [])].reverse().find((n) => n.action === 'rejected')
+        if (!lastRev || !lastRev.text) continue
+        seq++
+        added++
+        text += `\n## 案例 ${seq}\n- exprId: ${state.exprId}\n- stepId: ${s.id}\n- category: ${categorizeRejection(lastRev.text)}\n- reason: ${String(lastRev.text).slice(0, 300)}\n- recordedAt: ${new Date().toISOString()}\n`
+      }
+      if (added > 0) {
+        if (!text.trim()) text = '# Prompt 案例库（V3.1 自动维护，finalize 时幂等追加）\n'
+        await fs.writeText(target, text, safePolicy).catch(() => {})
+      }
+      return added
+    } catch (err) { return 0 }
+  }
+
   const safePolicyFor = (base) =>
     sandboxPolicy?.resolve
       ? { ...sandboxPolicy.resolve({ mode: 'workspace-write' }), workspaceRoot: base }
@@ -518,7 +601,8 @@ export function apply(ctx) {
   // ---------- v1.5: 审核辅助 ----------
   // 构建审核 prompt（外部 AI 与对话模型共用）；artifact_required:false 的步骤不要求实体产物。
   // v2.2-1: 增加 artifactsSummary 参数——上一步产物文件内容摘要注入审核上下文，降低盲审打回。
-  function buildReviewPrompt(exprId, step, recordText, traceText, reviewer, artifactsSummary) {
+  // v3.1-2: 增加 caseBlock 参数——历史拒收案例（Top-K≤3）注入，反思学习降低重复打回。
+  function buildReviewPrompt(exprId, step, recordText, traceText, reviewer, artifactsSummary, caseBlock) {
     return [
       `你是 dsh-web-relay 的审核员（${reviewer}）。请只审核当前 Step。`,
       '',
@@ -534,6 +618,8 @@ export function apply(ctx) {
       '主 agent 已提交 review，请根据实际执行结果审核。',
       '',
       artifactsSummary ? artifactsSummary : '',
+      '',
+      caseBlock ? caseBlock : '',
       '',
       '【任务记录摘要】',
       clip(recordText || '(无)', 4000),
@@ -2435,6 +2521,8 @@ export function apply(ctx) {
         .join('\n')
       // v2.2-1: 上一步产物摘要（审核上下文增强）
       const artifactsSummary = await buildArtifactsSummary(base, safePolicy, step.artifacts)
+      // v3.1-2: 历史拒收案例注入（Top-K≤3，反思学习）
+      const caseBlock = await buildCaseBlock(base, step)
 
       // ---- v1.9 审核降级链：Gemini API → web-gemini 网页（免配额）→ 对话模型 → 手动 ----
       // v3.0.1: 降级链加入 web-gemini（原链 external → dialog，网页通道不参与审核；
@@ -2445,7 +2533,7 @@ export function apply(ctx) {
       let prompt = ''
 
       if (GEMINI_KEY) {
-        prompt = buildReviewPrompt(exprId, step, recordText, traceText, '外部 AI（Gemini）', artifactsSummary)
+        prompt = buildReviewPrompt(exprId, step, recordText, traceText, '外部 AI（Gemini）', artifactsSummary, caseBlock)
         r = await callGemini(prompt)
         if (r.ok) reviewer = 'external'
         else fallbackReason = r.error
@@ -2462,7 +2550,7 @@ export function apply(ctx) {
           fallbackReason = fallbackReason ? fallbackReason + ' → web-gemini 网页通道' : 'web-gemini 网页通道'
         } else {
           fallbackReason = (fallbackReason ? fallbackReason + '；' : '') + `web-gemini（${w.error}）`
-          prompt = buildReviewPrompt(exprId, step, recordText, traceText, '对话模型（无工具）', artifactsSummary)
+          prompt = buildReviewPrompt(exprId, step, recordText, traceText, '对话模型（无工具）', artifactsSummary, caseBlock)
           r = await callDialogModel(prompt)
           if (r.ok) reviewer = 'dialog'
           else fallbackReason = fallbackReason + '；对话模型亦失败'
@@ -2864,6 +2952,8 @@ export function apply(ctx) {
         state.finalSummary = summary.text
         const updated = await writeStepState(base, exprId, state, safePolicy)
         await appendTrace({ base, safePolicy, exprId, entries: [traceEntry('mainagent', summary.text)] }).catch(() => {})
+        // v3.1-2: 收口时收集拒收案例（聚类 + 幂等追加案例库，后台静默）
+        await collectRejectedCases(state, base, safePolicy).catch(() => {})
 
         let wake = null
         if (sessionId) {
