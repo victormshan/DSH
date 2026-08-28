@@ -65,6 +65,38 @@ test('降级标注映射（askHandler 契约）', () => {
   assert.equal(label(true), '对话模型（降级）')
 })
 
+// v3.0.1: 审核降级链镜像（Gemini API → web-gemini 网页 → dialog → manual）
+function reviewChain(apiOk, webOk) {
+  if (apiOk) return { reviewer: 'external', note: 'Gemini API' }
+  if (webOk) return { reviewer: 'external', note: 'Gemini API 失败 → web-gemini 网页通道' }
+  return { reviewer: 'dialog', note: 'API+web 失败 → 对话模型' }
+}
+
+test('v3.0.1 审核降级链：API 成功 → external', () => {
+  assert.deepEqual(reviewChain(true, false), { reviewer: 'external', note: 'Gemini API' })
+})
+
+test('v3.0.1 审核降级链：API 失败 → web-gemini 成功 → external（免配额）', () => {
+  const r = reviewChain(false, true)
+  assert.equal(r.reviewer, 'external')
+  assert.ok(r.note.includes('web-gemini'))
+})
+
+test('v3.0.1 审核降级链：API+web 都失败 → dialog', () => {
+  assert.equal(reviewChain(false, false).reviewer, 'dialog')
+})
+
+test('source 源码含 v3.0.1 审核降级链标记（API → web-gemini → dialog）', () => {
+  const src = fs.readFileSync(new URL('../lib/index.js', import.meta.url), 'utf8')
+  assert.ok(src.includes('v3.0.1: 降级链加入 web-gemini'))
+  assert.ok(src.includes('v3.0.1: Gemini API 失败 → web-gemini 网页通道（免配额）'))
+  // 顺序：callGemini 在 webGeminiAsk 之前（API 优先），webGeminiAsk 在 callDialogModel 之前
+  const api = src.indexOf('r = await callGemini(prompt)')
+  const web = src.indexOf('const w = await webGeminiAsk(prompt)')
+  const dia = src.indexOf('r = await callDialogModel(prompt)', web)
+  assert.ok(api > 0 && web > api && dia > web, `顺序异常 api=${api} web=${web} dia=${dia}`)
+})
+
 test('source 源码含修复标记（inject + 块数组 + currentSelection）', () => {
   const src = fs.readFileSync(new URL('../lib/index.js', import.meta.url), 'utf8')
   assert.ok(src.includes("'agentDefaultModel'"))

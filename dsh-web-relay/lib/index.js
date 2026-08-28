@@ -2436,7 +2436,9 @@ export function apply(ctx) {
       // v2.2-1: 上一步产物摘要（审核上下文增强）
       const artifactsSummary = await buildArtifactsSummary(base, safePolicy, step.artifacts)
 
-      // ---- v1.5 三级降级链：外部AI → 对话模型(无工具) → 手动 ----
+      // ---- v1.9 审核降级链：Gemini API → web-gemini 网页（免配额）→ 对话模型 → 手动 ----
+      // v3.0.1: 降级链加入 web-gemini（原链 external → dialog，网页通道不参与审核；
+      // 现 API 失败时经 web-gemini 网页审核，免配额且审核过程在 Gemini 页面可见）。
       let reviewer = 'external'   // external | dialog | manual
       let fallbackReason = ''
       let r = { ok: false }
@@ -2452,10 +2454,19 @@ export function apply(ctx) {
       }
 
       if (!r.ok) {
-        prompt = buildReviewPrompt(exprId, step, recordText, traceText, '对话模型（无工具）', artifactsSummary)
-        r = await callDialogModel(prompt)
-        if (r.ok) reviewer = 'dialog'
-        else fallbackReason = fallbackReason || r.error
+        // v3.0.1: Gemini API 失败 → web-gemini 网页通道（免配额）
+        const w = await webGeminiAsk(prompt)
+        if (w.ok) {
+          r = w
+          reviewer = 'external'
+          fallbackReason = fallbackReason ? fallbackReason + ' → web-gemini 网页通道' : 'web-gemini 网页通道'
+        } else {
+          fallbackReason = (fallbackReason ? fallbackReason + '；' : '') + `web-gemini（${w.error}）`
+          prompt = buildReviewPrompt(exprId, step, recordText, traceText, '对话模型（无工具）', artifactsSummary)
+          r = await callDialogModel(prompt)
+          if (r.ok) reviewer = 'dialog'
+          else fallbackReason = fallbackReason + '；对话模型亦失败'
+        }
       }
 
       let result = ''
