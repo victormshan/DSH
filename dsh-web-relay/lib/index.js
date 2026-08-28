@@ -15,6 +15,8 @@
 
 import { randomUUID } from 'node:crypto'
 import { readFileSync } from 'node:fs'
+import { execSync } from 'node:child_process'
+import path from 'node:path'
 
 // v2.4-1: 插件版本（从 package.json 实时读取，避免硬编码漂移——原 statusHandler 曾长期报 1.3.0）
 export const PLUGIN_VERSION = (() => {
@@ -711,6 +713,89 @@ export function apply(ctx) {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(body)
     }).catch(() => { /* 通知失败静默，不影响主流程 */ })
+  }
+
+  // ---------- V3.0: 影子试错沙盒（Shadow Trial Sandbox）----------
+  // 基于 git worktree 的无感知隔离试错：create 建影子层（复用对象库，~275ms/2.1MB），
+  // 影子层内自由修改自检，approved 后 merge 原子应用回主工作区，rejected/收口 destroy 秒级清理。
+  const shadowSandboxes = new Map()   // sandboxId -> meta
+  const SHADOW_MAX = 2                // 并发影子层上限（磁盘 3.1GB 硬约束）
+  const SHADOW_GIT_TIMEOUT = 5000     // git 命令超时（ms）
+
+  // 路径引号（Windows 路径含空格）
+  function q2(p) { return '"' + String(p).replace(/"/g, '\\"') + '"' }
+
+  function shadowGit(repoPath, args) {
+    const q = (p) => '"' + String(p).replace(/"/g, '\\"') + '"'
+    return execSync(`git -C ${q(repoPath)} ${args}`, {
+      encoding: 'utf8', timeout: SHADOW_GIT_TIMEOUT, stdio: ['ignore', 'pipe', 'pipe']
+    }).trim()
+  }
+
+  // V3.0: POST /dsh-web-relay/shadow { action: create|merge|destroy, repoPath?, sandboxId? }
+  const shadowHandler = async (req, res) => {
+    try {
+      if (req.method === 'OPTIONS') return res.writeHead(204, CORS).end()
+      const payload = JSON.parse((await readBody(req)) || '{}')
+      const action = String(payload.action || '')
+      const repoPath = String(payload.repoPath || '')
+      const sandboxId = String(payload.sandboxId || '')
+
+      if (action === 'create') {
+        if (!repoPath) return json(res, 400, { ok: false, error: 'missing repoPath' })
+        const active = [...shadowSandboxes.values()].filter((s) => s.status === 'active')
+        if (active.length >= SHADOW_MAX) return json(res, 429, { ok: false, error: `影子层并发上限 ${SHADOW_MAX}（磁盘约束），请先 destroy 再 create` })
+        const id = 'sb-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6)
+        const shadowPath = path.join(path.dirname(repoPath), id)
+        try {
+          const baseCommit = shadowGit(repoPath, `worktree add --detach ${q2(shadowPath)} HEAD`).split(' ').pop()
+          const meta = { sandboxId: id, repoPath, shadowPath, baseCommit, status: 'active', createdAt: new Date().toISOString() }
+          shadowSandboxes.set(id, meta)
+          return json(res, 200, { ok: true, action: 'created', sandbox: meta })
+        } catch (e) {
+          return json(res, 500, { ok: false, error: `worktree 创建失败: ${String((e && e.message) || e).slice(0, 200)}` })
+        }
+      }
+
+      if (action === 'merge') {
+        const meta = shadowSandboxes.get(sandboxId)
+        if (!meta) return json(res, 404, { ok: false, error: 'sandbox not found' })
+        try {
+          // 影子层内相对 baseCommit 的 diff → 应用到主工作区（原子合并）
+          const patch = shadowGit(meta.shadowPath, `diff ${meta.baseCommit} -- .`)
+          if (patch.trim()) {
+            execSync(`git -C ${q2(meta.repoPath)} apply -`, { input: patch, encoding: 'utf8', timeout: SHADOW_GIT_TIMEOUT, stdio: ['ignore', 'pipe', 'pipe'] })
+          }
+          shadowGit(meta.repoPath, `worktree remove --force ${q2(meta.shadowPath)}`)
+          meta.status = 'merged'
+          meta.mergedAt = new Date().toISOString()
+          return json(res, 200, { ok: true, action: 'merged', sandbox: meta, patchBytes: patch.length })
+        } catch (e) {
+          return json(res, 500, { ok: false, error: `merge 失败: ${String((e && e.message) || e).slice(0, 200)}` })
+        }
+      }
+
+      if (action === 'destroy') {
+        const meta = shadowSandboxes.get(sandboxId)
+        if (!meta) return json(res, 404, { ok: false, error: 'sandbox not found' })
+        try {
+          shadowGit(meta.repoPath, `worktree remove --force ${q2(meta.shadowPath)}`).catch?.(() => {})
+          meta.status = 'destroyed'
+          meta.destroyedAt = new Date().toISOString()
+          return json(res, 200, { ok: true, action: 'destroyed', sandbox: meta })
+        } catch (e) {
+          return json(res, 500, { ok: false, error: `destroy 失败: ${String((e && e.message) || e).slice(0, 200)}` })
+        }
+      }
+
+      if (action === 'list') {
+        return json(res, 200, { ok: true, sandboxes: [...shadowSandboxes.values()], max: SHADOW_MAX })
+      }
+
+      return json(res, 400, { ok: false, error: 'unknown action（允许 create / merge / destroy / list）' })
+    } catch (err) {
+      json(res, 500, { ok: false, error: String(err?.message || err) })
+    }
   }
 
   // ---------- v1.5: Planning 只读探路缓存（高频文件直读，TTL 60s） ----------
@@ -2922,6 +3007,7 @@ export function apply(ctx) {
     ctx.effect(() => webServer.register({ kind: 'exact', path: '/dsh-web-relay/steps/auto-review', handler: autoReviewHandler }), 'dsh-web-relay/steps/auto-review')
   ctx.effect(() => webServer.register({ kind: 'exact', path: '/dsh-web-relay/trace', handler: traceHandler }), 'dsh-web-relay/trace')
   ctx.effect(() => webServer.register({ kind: 'exact', path: '/dsh-web-relay/replay', handler: replayHandler }), 'dsh-web-relay/replay')
+  ctx.effect(() => webServer.register({ kind: 'exact', path: '/dsh-web-relay/shadow', handler: shadowHandler }), 'dsh-web-relay/shadow')
   ctx.effect(() => webServer.register({ kind: 'exact', path: '/dsh-web-relay/traces', handler: tracesHandler }), 'dsh-web-relay/traces')
   ctx.effect(() => webServer.register({ kind: 'exact', path: '/dsh-web-relay/record', handler: recordHandler }), 'dsh-web-relay/record')
   ctx.effect(() => webServer.register({ kind: 'exact', path: '/dsh-web-relay/protocol', handler: protocolHandler }), 'dsh-web-relay/protocol')
