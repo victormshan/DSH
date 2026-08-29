@@ -195,6 +195,9 @@ window.__ModuleLoader__.load({
         replayTraceLabel: '相关三方发言（trace）',
         badgeRejected: '已打回',
         replayPickStep: '选择步骤…',
+        reviewChannelTitle: '审核通道：auto=API 优先（失败切网页）；web-gemini=强制网页（过程可见）',
+        reviewChannelAuto: 'auto（API 优先）',
+        reviewChannelWebGemini: 'web-gemini（网页）',
         badgeWaitReview: '等待审核',
         badgeExecuting: '主 agent 执行中',
         badgeDone: '已完成',
@@ -350,6 +353,9 @@ window.__ModuleLoader__.load({
         replayTimelineLabel: 'State flow (timeline)',
         replayTraceLabel: 'Related trace entries',
         replayPickStep: 'Pick a step…',
+        reviewChannelTitle: 'Review channel: auto=API first (web fallback); web-gemini=force web (visible)',
+        reviewChannelAuto: 'auto (API first)',
+        reviewChannelWebGemini: 'web-gemini (web)',
         badgeRejected: 'Rejected',
         badgeWaitReview: 'Awaiting review',
         badgeExecuting: 'Main agent running',
@@ -506,6 +512,13 @@ window.__ModuleLoader__.load({
       const [webhookUrl, setWebhookUrl] = useState(() => {
         try { return localStorage.getItem('dsh-web-relay:webhook-url') || '' } catch (e) { return '' }
       })
+      // v3.2.4: 审核通道选择（auto=API 优先+网页兜底；web-gemini=强制网页审核，过程可见）
+      const [reviewChannel, setReviewChannel] = useState(() => {
+        try { return localStorage.getItem('dsh-web-relay:review-channel') === 'web-gemini' ? 'web-gemini' : 'auto' } catch (e) { return 'auto' }
+      })
+      useEffect(() => {
+        try { localStorage.setItem('dsh-web-relay:review-channel', reviewChannel) } catch (e) { /* ignore */ }
+      }, [reviewChannel])
       // v2.5-2 (UI): Trace Replay 还原结果
       const [replayResult, setReplayResult] = useState(null)
       const [replayStepId, setReplayStepId] = useState('')   // 独立 Replay 入口选中的步骤 id
@@ -1041,7 +1054,7 @@ window.__ModuleLoader__.load({
             const resp = await fetch('/dsh-web-relay/steps/auto-review', {
               method: 'POST',
               headers: { 'content-type': 'application/json' },
-              body: JSON.stringify({ workspacePath, exprId, stepId, sessionId, protocolVersion }),
+              body: JSON.stringify({ workspacePath, exprId, stepId, sessionId, protocolVersion, reviewChannel }),
               signal: controller.signal
             })
             const data = await resp.json().catch(() => ({ ok: false, error: 'bad response' }))
@@ -1093,7 +1106,7 @@ window.__ModuleLoader__.load({
             const resp = await fetch('/dsh-web-relay/steps/auto-review', {
               method: 'POST',
               headers: { 'content-type': 'application/json' },
-              body: JSON.stringify({ workspacePath, exprId, sessionId, protocolVersion, batchStepIds: ids }),
+              body: JSON.stringify({ workspacePath, exprId, sessionId, protocolVersion, batchStepIds: ids, reviewChannel }),
               signal: controller.signal
             })
             const data = await resp.json().catch(() => ({ ok: false, error: 'bad response' }))
@@ -1955,6 +1968,17 @@ window.__ModuleLoader__.load({
                     className: 'dwr-ghost',
                     style: { ...ghostPurple, padding: '2px 8px', fontSize: 11, marginLeft: 6 }
                   }, (stepBusy && stepBusyAction === 'batchReview') ? T.batchReview + '…' : T.batchReview),
+                  // v3.2.4: 审核通道选择（auto=API 优先+网页兜底；web-gemini=强制网页审核，过程可见）
+                  h('select', {
+                    value: reviewChannel,
+                    onChange: (e) => setReviewChannel(e.target.value),
+                    title: T.reviewChannelTitle,
+                    'aria-label': T.reviewChannelTitle,
+                    style: { ...inputStyle, margin: '0 0 0 6px', padding: '2px 6px', fontSize: 11, width: 'auto' }
+                  },
+                    h('option', { value: 'auto' }, T.reviewChannelAuto),
+                    h('option', { value: 'web-gemini' }, T.reviewChannelWebGemini)
+                  ),
                   // v1.8 H: 重构 Step List 入口（展开 textarea 粘贴新 steps JSON 数组）
                   h('button', {
                     onClick: () => setRestructureOpen(!restructureOpen),

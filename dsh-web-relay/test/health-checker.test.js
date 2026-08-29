@@ -83,3 +83,13 @@ test('source 源码含 v2.1.1 修复标记（DAG 点击定位高亮 + low 展开
   assert.ok(client.includes('setDagFocus'))
   assert.ok(client.includes('dagFocus'))
 })
+
+test('source 源码含 v3.2.4 审核通道选择器标记（lib/client.js）', () => {
+  const client = fs.readFileSync(new URL('../lib/client.js', import.meta.url), 'utf8')
+  assert.ok(client.includes('v3.2.4: 审核通道选择'))
+  assert.ok(client.includes('dsh-web-relay:review-channel'))
+  assert.ok(client.includes('reviewChannelWebGemini'))
+  // 单步与批量审核请求都携带 reviewChannel
+  assert.ok(client.includes('protocolVersion, reviewChannel }'))
+  assert.ok(client.includes('batchStepIds: ids, reviewChannel'))
+})
