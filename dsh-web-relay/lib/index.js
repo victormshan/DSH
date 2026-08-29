@@ -17,6 +17,8 @@ import { randomUUID } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { execSync } from 'node:child_process'
 import path from 'node:path'
+// V3.2: 多角色盲审 Swarm Prompt 模板与共识合成（lib/swarm-prompts.js 纯函数模块）
+import { buildRolePrompt, swarmConsensus, parseRoleReview } from './swarm-prompts.js'
 
 // v2.4-1: 插件版本（从 package.json 实时读取，避免硬编码漂移——原 statusHandler 曾长期报 1.3.0）
 export const PLUGIN_VERSION = (() => {
@@ -2507,9 +2509,11 @@ export function apply(ctx) {
 
 
     // ---------- v1.7 (P2): 单步自动审核（单步与批量共用） ----------
-    // 三级降级链（外部AI → 对话模型(无工具) → 手动）+ 应用结果 + 落盘 + 轨迹。
+    // 降级链（Gemini API → web-gemini 网页 → 对话模型 → 手动）+ 应用结果 + 落盘 + 轨迹。
+    // V3.2: enableSwarm=true 时走多角色盲审（Security-Auditor + Refactoring-Architect 双角色并行，
+    // 共识规则：双 Approve 才通过）。
     // 返回 { state, updated, step, reviewedBy, reviewerLabel, result, reason, manual, fallbackReason, traceText }
-    async function reviewOneStep(state, step, base, safePolicy) {
+    async function reviewOneStep(state, step, base, safePolicy, enableSwarm) {
       const exprId = state.exprId
       // 审核上下文：任务记录 + 三方轨迹
       const recordPath = `${EXPERIMENTS_DIR}/dsh-web-relay-${exprId.slice(5)}.md`
@@ -2523,6 +2527,59 @@ export function apply(ctx) {
       const artifactsSummary = await buildArtifactsSummary(base, safePolicy, step.artifacts)
       // v3.1-2: 历史拒收案例注入（Top-K≤3，反思学习）
       const caseBlock = await buildCaseBlock(base, step)
+
+      // ---- V3.2: 多角色盲审 Swarm（enableSwarm 开关）----
+      // 双角色（Security-Auditor / Refactoring-Architect）各自独立审查（盲审，互不知晓），
+      // 每角色走完整降级链；共识合成：双 Approve 才通过。
+      if (enableSwarm) {
+        const contextBlock = [
+          `任务 ID：${exprId}`,
+          `Step ID：${step.id}`,
+          `标题：${step.title}`,
+          `详情：${step.detail || '(无)'}`,
+          `验收标准：${step.acceptance || '(无)'}`,
+          `当前 notes：${JSON.stringify(step.notes || [])}`,
+          `artifacts：${JSON.stringify(step.artifacts || [])}`,
+          '',
+          artifactsSummary ? artifactsSummary : '',
+          '',
+          caseBlock ? caseBlock : '',
+          '',
+          '【任务记录摘要】',
+          clip(recordText || '(无)', 4000),
+          '',
+          '【三方轨迹】',
+          clip(traceText || '(无)', 4000)
+        ].join('\n')
+        const runRole = async (roleId) => {
+          const rolePrompt = buildRolePrompt(roleId, contextBlock, '外部 AI（Swarm）')
+          let rr = { ok: false }
+          if (GEMINI_KEY) rr = await callGemini(rolePrompt)
+          if (!rr.ok) { const w = await webGeminiAsk(rolePrompt); if (w.ok) rr = w }
+          if (!rr.ok) { rr = await callDialogModel(rolePrompt) }
+          if (!rr.ok) return { roleId, review: { verdict: 'rejected', findings: ['审核通道不可用'], suggestion: '' } }
+          return { roleId, review: parseRoleReview(rr.text) }
+        }
+        const swarmResults = await Promise.all([runRole('security'), runRole('refactor')])
+        const sec = swarmResults.find((x) => x.roleId === 'security') || { review: { verdict: 'rejected', findings: [] } }
+        const ref = swarmResults.find((x) => x.roleId === 'refactor') || { review: { verdict: 'rejected', findings: [] } }
+        const consensus = swarmConsensus(sec.review.verdict, ref.review.verdict)
+        const swarmReason = consensus.summary +
+          '\n【Security-Auditor】' + JSON.stringify(sec.review) +
+          '\n【Refactoring-Architect】' + JSON.stringify(ref.review)
+        return {
+          state, step,
+          manual: false,
+          reviewedBy: 'external',
+          reviewerLabel: 'Swarm（双角色盲审）',
+          result: consensus.result,
+          reason: swarmReason,
+          fallbackReason: 'V3.2 Swarm 双角色盲审',
+          traceText: clip(traceText, 3000),
+          updated: null,
+          swarm: { security: sec.review, refactor: ref.review, consensus: consensus.result }
+        }
+      }
 
       // ---- v1.9 审核降级链：Gemini API → web-gemini 网页（免配额）→ 对话模型 → 手动 ----
       // v3.0.1: 降级链加入 web-gemini（原链 external → dialog，网页通道不参与审核；
@@ -2810,7 +2867,7 @@ export function apply(ctx) {
               batchResults.push({ stepId: sid, status: s.status, skipped: true, error: '该步骤正在审核中，请勿重复触发' })
               continue
             }
-            const out = await reviewOneStep(state, s, base, safePolicy)
+            const out = await reviewOneStep(state, s, base, safePolicy, payload.enableSwarm === true)
             batchResults.push({
               stepId: sid,
               status: s.status,
@@ -2877,7 +2934,7 @@ export function apply(ctx) {
           return json(res, 200, { ok: true, skipped: true, error: '该步骤正在审核中，请勿重复触发' })
         }
 
-        const out = await reviewOneStep(state, step, base, safePolicy)
+        const out = await reviewOneStep(state, step, base, safePolicy, payload.enableSwarm === true)
         if (out.manual) {
           // 降级到手动：前端展开审核框
           return json(res, 200, {

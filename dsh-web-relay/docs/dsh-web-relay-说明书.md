@@ -1,6 +1,6 @@
 # dsh-web-relay 说明书
 
-> 适用版本：dsh-web-relay 3.1.0  
+> 适用版本：dsh-web-relay 3.2.0  
 > 协议版本：v1.9（向下兼容 v1.5 / v1.6 / v1.7 / v1.8；v1.5 线性为默认，v1.6 / v1.7 / v1.8 / v1.9 均继承 DAG 并发调度）  
 > 文档性质：基于当前实际源码与任务记录整理
 
@@ -32,7 +32,7 @@ dsh-web-relay 是 dsh web profile 中的实验性插件，用于在 dsh 主 agen
 
 ## 3. 协议规范（v1.3 起，含 v1.5 / v1.6 / v1.7 / v1.8）
 
-> 本章是 **dsh-web-relay 三方协作协议 v1.3（延伸至 v1.5 审核降级链、v1.6 并发调度、v1.7 多方案比较与步骤权重、v1.8 混合模式分工、v1.9 自动迭代与全角色降级）的正式规范文本**，属于协议层约定，独立于当前 3.1.0 具体实现。
+> 本章是 **dsh-web-relay 三方协作协议 v1.3（延伸至 v1.5 审核降级链、v1.6 并发调度、v1.7 多方案比较与步骤权重、v1.8 混合模式分工、v1.9 自动迭代与全角色降级）的正式规范文本**，属于协议层约定，独立于当前 3.2.0 具体实现。
 
 ### 3.1 协议范围
 
@@ -362,7 +362,7 @@ v1.8 在 v1.7 多方案比较与步骤权重之上引入**混合模式**：`impo
 
 ---
 
-## 4. 实际实现（3.1.0）
+## 4. 实际实现（3.2.0）
 
 > 以下内容来自当前安装源码。
 
@@ -706,11 +706,22 @@ v1.3.0 在 v1.2.1 之上新增（外部 AI 双视角评估批准：草案一 Aut
 
 **经验**：外部 AI 的"裁剪建议"（Top-K 限制防膨胀、反思后台安静执行）直接落地为硬约束——轻量化的核心是**可量化的上限**，而不是功能堆叠。
 
+### 4.22 v3.2.0 多角色盲审 Swarm（expr-2026-08-29_00-00-00）
+
+> 按 Gemini 网页评估（Medium 优先级，裁剪为 importance:high 可选项）：在影子沙盒与 Prompt 进化之上引入 **Security-Auditor + Refactoring-Architect 双角色盲审**，共识规则：**双 Approve 才通过**。
+
+**实现**：
+- **`lib/swarm-prompts.js`**（独立纯函数模块）：双角色专职 Prompt（Security-Auditor：路径越界/资源泄露/鉴权/注入；Refactoring-Architect：耦合/异常处理/测试完备性/性能）+ `swarmConsensus` 决策矩阵（双通过/单打回标注角色/双打回）+ `parseRoleReview`（严格 JSON + 宽松兜底）+ `buildRolePrompt`
+- **`lib/index.js`**：`reviewOneStep` 增 `enableSwarm` 开关——开启时双角色**盲审并行**（Promise.all，互不知晓），每角色走完整降级链（API→web-gemini→dialog），综合 reason 含分项判定；autoReviewHandler 单步/批量经 `payload.enableSwarm` 触发
+- 测试：`test/swarm-review.test.js`（8 用例：共识矩阵/JSON 解析/角色 Prompt/镜像路径越界拦截）
+
+**关键实测**：镜像验证 Security-Auditor 对隐蔽路径越界样例（`../` 逃逸）判定 rejected → 整体 Swarm rejected（盲审拦截有效）。
+
 ---
 
 ## 5. 使用方法
 
-> 本章基于 dsh-web-relay 3.1.0 实际功能编写。
+> 本章基于 dsh-web-relay 3.2.0 实际功能编写。
 
 ### 5.0 环境配置
 
@@ -966,7 +977,7 @@ dsh web
 
 ## 6. 开发者扩展
 
-> 本章属于开发者扩展指南，基于当前 3.1.0 实际实现；协议规范以第 3 章为准（v1.3 起，含 v1.5 / v1.6 / v1.7 / v1.8 / v1.9）。
+> 本章属于开发者扩展指南，基于当前 3.2.0 实际实现；协议规范以第 3 章为准（v1.3 起，含 v1.5 / v1.6 / v1.7 / v1.8 / v1.9）。
 
 ### 6.1 扩展总览
 
@@ -1083,7 +1094,7 @@ web-relay/traces/expr-<ts>.md
 
 ### 6.7 自动审核
 
-当前 3.1.0 已提供自动审核接口：
+当前 3.2.0 已提供自动审核接口：
 
 ```text
 POST /dsh-web-relay/steps/auto-review
@@ -1153,7 +1164,7 @@ body { workspacePath, exprId, stepId?, sessionId? }
 
 ## 9. 结论
 
-dsh-web-relay 3.1.0 已实现：
+dsh-web-relay 3.2.0 已实现：
 
 - v1.8 协议（v1.3 Step List 基础 + v1.4 Planning + v1.5 审核降级链 + v1.6 Step List 并发调度 + v1.7 多方案比较与步骤权重 + v1.8 混合模式分工）
 - v1.5 线性为默认、v1.6 / v1.7 / v1.8 均继承并发调度，多版本向后兼容
