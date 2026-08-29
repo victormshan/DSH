@@ -2467,13 +2467,17 @@ export function apply(ctx) {
               '',
               `请执行 Step ${step.id}，完成后写入三方轨迹并置为 review。`
             ].join('\n')
-            // v1.6 并发提示：start/reopen 后若还有依赖已满足的 pending 步骤，附带就绪清单
+            // v1.6 并发提示：start/reopen 后若还有依赖已满足的 pending 步骤，附带就绪清单。
+            // v3.2.1: 单就绪步骤不套用"可并行/subagent"措辞（避免误导——无并行对象）。
             if (isConcurrent(state.protocolVersion)) {
               const ready = readySteps(state)
-              if (ready.length > 0) {
+              if (ready.length > 1) {
                 const readyList = ready.map((s) => `Step ${s.id}（${s.parallel_group ? `组${s.parallel_group}` : '无组/串行'}）`).join('、')
                 handoffText += '\n\n【v1.6 并发提示】以下步骤依赖已满足，可与当前 Step 并行执行：\n' +
                   `⚡ 可并行启动：${readyList} → 建议用 subagent 并发执行`
+              } else if (ready.length === 1) {
+                const only = ready[0]
+                handoffText += `\n\n【v1.6 并发提示】下一步就绪：Step ${only.id}（${only.parallel_group ? `组${only.parallel_group}` : '串行'}）→ 请执行`
               }
             }
             if (sessionId) {
@@ -2704,10 +2708,14 @@ export function apply(ctx) {
             return `Step ${s.id}（${missing.length ? `依赖 ${missing.join(',')}` : '等待前序推进'}）`
           })
           .join('、') || '（无）'
+        // v3.2.1: 就绪步骤 ≥2 才用"并行/subagent"措辞；单就绪步骤显示"下一步就绪"（避免误导）
+        const readyLine = ready.length > 1
+          ? `⚡ 可并行启动：${readyList} → 建议用 subagent 并发执行`
+          : `⚡ 下一步就绪：${readyList} → 请执行`
         handoffText = [
-          '【主 agent 请协助】dsh-web-relay 自动审核已通过，以下步骤依赖已满足，可并行执行：',
+          '【主 agent 请协助】dsh-web-relay 自动审核已通过，以下步骤依赖已满足，可执行：',
           '',
-          `⚡ 可并行启动：${readyList} → 建议用 subagent 并发执行`,
+          readyLine,
           `🔒 等待中：${waitingList}`,
           '',
           `任务: ${exprId}`,
