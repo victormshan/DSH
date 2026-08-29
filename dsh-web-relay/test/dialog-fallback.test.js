@@ -126,3 +126,12 @@ test('source 源码含 v3.2.2 reviewChannel 标记（lib/index.js）', () => {
   assert.ok(src.includes('web-gemini 强制通道'))
   assert.ok(src.includes('payload.reviewChannel'))
 })
+
+test('source 源码含 v3.2.3 修复标记（web 模式也构建 prompt）', () => {
+  const src = fs.readFileSync(new URL('../lib/index.js', import.meta.url), 'utf8')
+  assert.ok(src.includes('v3.2.3 修复：web-gemini 模式同样构建 prompt'))
+  // web-gemini 模式下 prompt 在 webGeminiAsk 调用前被赋值（buildReviewPrompt 在 else 分支内）
+  const elseStart = src.indexOf('v3.2.3 修复')
+  const webAsk = src.indexOf('const w = await webGeminiAsk(prompt)')
+  assert.ok(elseStart > 0 && webAsk > elseStart, 'web 模式 prompt 构建先于 webGeminiAsk')
+})

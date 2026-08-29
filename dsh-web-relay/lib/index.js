@@ -2603,6 +2603,11 @@ export function apply(ctx) {
         else fallbackReason = r.error
       } else {
         fallbackReason = channel === 'web-gemini' ? 'web-gemini 强制通道（reviewChannel=web-gemini）' : 'GEMINI_API_KEY 未配置'
+        // v3.2.3 修复：web-gemini 模式同样构建 prompt（此前只在 auto 分支赋值，
+        // 导致 webGeminiAsk 收到空 prompt → bridge 400 missing prompt → 误降级 dialog）
+        if (channel === 'web-gemini') {
+          prompt = buildReviewPrompt(exprId, step, recordText, traceText, '外部 AI（Gemini）', artifactsSummary, caseBlock)
+        }
       }
 
       if (!r.ok) {
