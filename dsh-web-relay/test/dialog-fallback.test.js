@@ -103,3 +103,26 @@ test('source 源码含修复标记（inject + 块数组 + currentSelection）', 
   assert.ok(src.includes("content: [{ type: 'text', text: prompt }]"))
   assert.ok(src.includes('agentDefaultModel.currentSelection'))
 })
+
+// v3.2.2: reviewChannel 模式判定镜像（auto=API 优先；web-gemini=跳过 API 强制网页）
+function channelMode(reviewChannel) {
+  return reviewChannel === 'web-gemini' ? 'web-gemini' : 'auto'
+}
+
+test('v3.2.2 reviewChannel：默认 auto（API 优先）', () => {
+  assert.equal(channelMode(undefined), 'auto')
+  assert.equal(channelMode(null), 'auto')
+  assert.equal(channelMode(''), 'auto')
+})
+
+test('v3.2.2 reviewChannel：web-gemini 强制网页', () => {
+  assert.equal(channelMode('web-gemini'), 'web-gemini')
+})
+
+test('source 源码含 v3.2.2 reviewChannel 标记（lib/index.js）', () => {
+  const src = fs.readFileSync(new URL('../lib/index.js', import.meta.url), 'utf8')
+  assert.ok(src.includes('v3.2.2: reviewChannel 开关'))
+  assert.ok(src.includes("reviewChannel === 'web-gemini' ? 'web-gemini' : 'auto'"))
+  assert.ok(src.includes('web-gemini 强制通道'))
+  assert.ok(src.includes('payload.reviewChannel'))
+})

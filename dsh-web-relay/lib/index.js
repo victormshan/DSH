@@ -2516,9 +2516,11 @@ export function apply(ctx) {
     // 降级链（Gemini API → web-gemini 网页 → 对话模型 → 手动）+ 应用结果 + 落盘 + 轨迹。
     // V3.2: enableSwarm=true 时走多角色盲审（Security-Auditor + Refactoring-Architect 双角色并行，
     // 共识规则：双 Approve 才通过）。
+    // v3.2.2: reviewChannel 开关——'web-gemini' 强制网页审核（过程可见、免配额）；'auto'（默认）API 优先、失败才切网页。
     // 返回 { state, updated, step, reviewedBy, reviewerLabel, result, reason, manual, fallbackReason, traceText }
-    async function reviewOneStep(state, step, base, safePolicy, enableSwarm) {
+    async function reviewOneStep(state, step, base, safePolicy, enableSwarm, reviewChannel) {
       const exprId = state.exprId
+      const channel = reviewChannel === 'web-gemini' ? 'web-gemini' : 'auto'
       // 审核上下文：任务记录 + 三方轨迹
       const recordPath = `${EXPERIMENTS_DIR}/dsh-web-relay-${exprId.slice(5)}.md`
       const recordTarget = await fs.resolve(recordPath, { cwd: base })
@@ -2588,18 +2590,19 @@ export function apply(ctx) {
       // ---- v1.9 审核降级链：Gemini API → web-gemini 网页（免配额）→ 对话模型 → 手动 ----
       // v3.0.1: 降级链加入 web-gemini（原链 external → dialog，网页通道不参与审核；
       // 现 API 失败时经 web-gemini 网页审核，免配额且审核过程在 Gemini 页面可见）。
+      // v3.2.2: reviewChannel='web-gemini' 时跳过 API 直接走网页（审核过程强制可见）。
       let reviewer = 'external'   // external | dialog | manual
       let fallbackReason = ''
       let r = { ok: false }
       let prompt = ''
 
-      if (GEMINI_KEY) {
+      if (channel === 'auto' && GEMINI_KEY) {
         prompt = buildReviewPrompt(exprId, step, recordText, traceText, '外部 AI（Gemini）', artifactsSummary, caseBlock)
         r = await callGemini(prompt)
         if (r.ok) reviewer = 'external'
         else fallbackReason = r.error
       } else {
-        fallbackReason = 'GEMINI_API_KEY 未配置'
+        fallbackReason = channel === 'web-gemini' ? 'web-gemini 强制通道（reviewChannel=web-gemini）' : 'GEMINI_API_KEY 未配置'
       }
 
       if (!r.ok) {
@@ -2875,7 +2878,7 @@ export function apply(ctx) {
               batchResults.push({ stepId: sid, status: s.status, skipped: true, error: '该步骤正在审核中，请勿重复触发' })
               continue
             }
-            const out = await reviewOneStep(state, s, base, safePolicy, payload.enableSwarm === true)
+            const out = await reviewOneStep(state, s, base, safePolicy, payload.enableSwarm === true, payload.reviewChannel)
             batchResults.push({
               stepId: sid,
               status: s.status,
@@ -2942,7 +2945,7 @@ export function apply(ctx) {
           return json(res, 200, { ok: true, skipped: true, error: '该步骤正在审核中，请勿重复触发' })
         }
 
-        const out = await reviewOneStep(state, step, base, safePolicy, payload.enableSwarm === true)
+        const out = await reviewOneStep(state, step, base, safePolicy, payload.enableSwarm === true, payload.reviewChannel)
         if (out.manual) {
           // 降级到手动：前端展开审核框
           return json(res, 200, {
