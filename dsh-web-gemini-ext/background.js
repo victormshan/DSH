@@ -55,7 +55,15 @@ async function pollOnce() {
       const target = pickIdleTab(tabs)
       if (!target) return
       console.log('[web-gemini] 取到任务', d.task.id, '→ 分发到 Tab', target.id)
-      const resp = await chrome.tabs.sendMessage(target.id, { type: 'handle-task', task: d.task }).catch(() => null)
+      // v0.2.1: sendMessage 失败自动重试（MV3 SW 唤醒竞态兜底——content 注入瞬间端口可能未稳定）
+      let resp = null
+      for (let attempt = 0; attempt < 3 && resp === null; attempt++) {
+        if (attempt > 0) {
+          await new Promise((r) => setTimeout(r, 2000))
+          console.warn('[web-gemini] 任务', d.task.id, 'sendMessage 第', attempt + 1, '次重试（Tab', target.id + '）')
+        }
+        resp = await chrome.tabs.sendMessage(target.id, { type: 'handle-task', task: d.task }).catch(() => null)
+      }
       if (resp && resp.answer) {
         tabActivity.set(target.id, Date.now())
         await bridgeFetch('/submit-answer', {
