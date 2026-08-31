@@ -139,3 +139,45 @@ P3：实盘（V5）
 | 10 | 自动系统 | 五.迭代计划（V2-V5 自动化）+ 四.调度（cron/GitHub Actions） | ✅ 已覆盖（V2 起自动化） |
 
 > 缺口：需求 5（预测依据）在 V1 仅情绪预测，专用预测模型（如财报前瞻/价格预测）列入 V3 分析引擎迭代。
+
+
+## 八、数据层设计（V2）
+
+### 8.1 数据采集管道
+
+| 数据源 | 采集方式 | 频率 | 依赖/库 |
+|---|---|---|---|
+| 日线行情 | yfinance 批量拉取（股票+ETF 代码表） | 每日收盘后 17:00 ET | yfinance |
+| 财务报告 | SEC EDGAR submissions API（10-K/10-Q 索引 + 字段） | 季度（财报日触发） | sec-edgar-api / requests |
+| 财经新闻 | NewsAPI 按代码过滤 / GDELT 流式 | 每小时 | requests |
+| 宏观数据 | FRED API（利率/CPI/PMI 序列） | 每日/每周 | fredapi |
+
+### 8.2 清洗规则
+
+- **行情**：剔除停牌日缺失行、前复权校准、OHLC 空值前向填充（限 3 日）、成交量异常（>10σ）标记
+- **财报**：SEC 原始字段→统一 schema 映射（revenue/net_income/eps/assets/debt/free_cash_flow）、缺失披露（如未按期申报）标记为 null 不推断
+- **新闻**：按 ticker 过滤、标题+正文去重（simhash）、语言过滤（EN 为主）、相关度打分（代码提及次数）
+- **宏观**：季度化对齐（月度序列转季度均值）、缺口线性插值（限 2 期）
+
+### 8.3 字段 Schema（SQLite 表 DDL 草案）
+
+`sql
+-- 行情表
+CREATE TABLE prices (symbol TEXT, date TEXT, open REAL, high REAL, low REAL, close REAL, adj_close REAL, volume INTEGER, PRIMARY KEY (symbol, date));
+-- 财报表（季度）
+CREATE TABLE fundamentals (symbol TEXT, period TEXT, revenue REAL, net_income REAL, eps REAL, total_assets REAL, total_liabilities REAL, free_cash_flow REAL, PRIMARY KEY (symbol, period));
+-- 新闻表
+CREATE TABLE news (id INTEGER PRIMARY KEY, symbol TEXT, ts TEXT, title TEXT, body TEXT, sentiment REAL, relevance REAL);
+-- 宏观表
+CREATE TABLE macro (series TEXT, date TEXT, value REAL, PRIMARY KEY (series, date));
+`
+
+### 8.4 增量更新策略
+
+- 行情：每日增量（T-1 收盘），周末/节假日跳过
+- 财报：按财报日历增量（新 10-K/10-Q 发布即拉）
+- 新闻：每小时增量（游标=上次最大 ts）
+- 宏观：按发布日历增量
+- 全量重跑：--rebuild 标志触发（重建表 + 全量拉取，用于 schema 变更后）
+
+> V2 自检：数据层覆盖 4 源采集/清洗/schema/存储/增量 5 要素齐全。
