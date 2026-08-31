@@ -44,10 +44,26 @@ Register-ScheduledTask -TaskName 'DSH-Bridge-Watchdog' -Action $action -Trigger 
 注意：node 若由 nvm 管理（`nodejs` 为 symlink），watchdog 内部会用
 `fs.realpathSync(process.execPath)` 解引用到真实路径再 spawn，避免 ENOENT。
 
+## CORS 允许源（扩展 ID）
+
+`bridge-server.mjs` 内置了当前本机已加载扩展的默认 origin
+（`chrome-extension://makbmohpkaccbgpdncjmfkdjmhcjnleg`），无需额外配置即可工作，
+守护进程开机自启（计划任务）时也直接生效。
+
+若换机器重新「加载已解压的扩展程序」、或扩展所在目录变化，Chrome 分配的扩展 ID 会变
+（`chrome://extensions` 里对应本扩展卡片的 ID 字段），此时用环境变量覆盖，无需改代码：
+
+```powershell
+$env:DSH_BRIDGE_ORIGIN = "chrome-extension://<新 ID>"
+```
+
 ## 校验
 
+`/stats` 是业务端点，v0.4.0 起需要 token 鉴权（`/__token` 免鉴权，用于取 token）：
+
 ```bash
-curl http://localhost:8899/stats        # { ok:true, total, byStatus }
+TOKEN=$(curl -s http://localhost:8899/__token | node -pe 'JSON.parse(require("fs").readFileSync(0)).token')
+curl -H "X-DSH-Bridge-Token: $TOKEN" http://localhost:8899/stats   # { ok:true, total, byStatus }
 ```
 
 - bridge 存活 → `ok: true`

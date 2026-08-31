@@ -12,6 +12,8 @@
 //     所有业务端点校验 X-DSH-Bridge-Token 请求头，无/错 token 一律 401
 //  ③ CORS 收窄：不再全开 '*'（GM_xmlhttpRequest 不受 CORS 限制，扩展有 host_permissions，
 //     收窄只影响浏览器 fetch 直连场景，属纵深防御）
+// v0.4.1：ALLOWED_ORIGIN 内置本机扩展 ID 兜底默认值，watchdog 计划任务开机自启时无需
+//  手动 export DSH_BRIDGE_ORIGIN 即可生效；扩展 ID 变化时仍可用该环境变量覆盖。
 import http from 'node:http'
 import fs from 'node:fs'
 import crypto from 'node:crypto'
@@ -20,7 +22,10 @@ import { dirname, join } from 'node:path'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const TOKEN_FILE = join(__dirname, 'bridge.token')
-const ALLOWED_ORIGIN = process.env.DSH_BRIDGE_ORIGIN || null   // 可配置：扩展的实际 origin
+// 默认值 = 本机已加载的扩展 ID（chrome://extensions 可查）；扩展换目录/换机器重装后 ID 会变，
+// 届时通过 DSH_BRIDGE_ORIGIN 环境变量覆盖即可，无需改代码。
+const DEFAULT_EXTENSION_ORIGIN = 'chrome-extension://makbmohpkaccbgpdncjmfkdjmhcjnleg'
+const ALLOWED_ORIGIN = process.env.DSH_BRIDGE_ORIGIN || DEFAULT_EXTENSION_ORIGIN
 
 // 共享 token：文件不存在则生成（32 字节 hex，不可预测）；存在则读取。
 function loadToken() {
