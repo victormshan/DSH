@@ -4,18 +4,51 @@
 //   GET  /next-task                   → 油猴脚本轮询取任务（取到后置 processing）
 //   POST /submit-answer {id, answer}  → 油猴脚本回传答案（置 done）
 //   GET  /task-result/:id             → 主 agent 取结果
-// 内存队列（PoC 够用）；CORS 全开（GM_xmlhttpRequest 本身绕过 CORS，双保险）。
+// 内存队列（PoC 够用）。
+//
+// v0.4.0（安全加固，对应改进方案 P0-1）：
+//  ① server.listen 显式绑定 127.0.0.1（此前默认绑 0.0.0.0，局域网内可达）
+//  ② 共享密钥认证：启动时读取/生成 bridge.token（同目录，0600 权限），
+//     所有业务端点校验 X-DSH-Bridge-Token 请求头，无/错 token 一律 401
+//  ③ CORS 收窄：不再全开 '*'（GM_xmlhttpRequest 不受 CORS 限制，扩展有 host_permissions，
+//     收窄只影响浏览器 fetch 直连场景，属纵深防御）
 import http from 'node:http'
+import fs from 'node:fs'
+import crypto from 'node:crypto'
+import { fileURLToPath } from 'node:url'
+import { dirname, join } from 'node:path'
+
+const __dirname = dirname(fileURLToPath(import.meta.url))
+const TOKEN_FILE = join(__dirname, 'bridge.token')
+const ALLOWED_ORIGIN = process.env.DSH_BRIDGE_ORIGIN || null   // 可配置：扩展的实际 origin
+
+// 共享 token：文件不存在则生成（32 字节 hex，不可预测）；存在则读取。
+function loadToken() {
+  try {
+    const existing = fs.readFileSync(TOKEN_FILE, 'utf8').trim()
+    if (existing.length >= 32) return existing
+  } catch { /* 不存在则生成 */ }
+  const token = crypto.randomBytes(32).toString('hex')
+  fs.writeFileSync(TOKEN_FILE, token + '\n', { mode: 0o600 })
+  console.log('[bridge] 已生成新 token →', TOKEN_FILE)
+  return token
+}
+const BRIDGE_TOKEN = loadToken()
 
 const tasks = new Map() // id -> { id, prompt, status, answer, createdAt, completedAt }
 let seq = 0
 
+function authOk(req) {
+  const h = req.headers['x-dsh-bridge-token'] || req.headers['X-DSH-Bridge-Token'] || ''
+  return typeof h === 'string' && h.trim() === BRIDGE_TOKEN
+}
+
 const json = (res, code, payload) => {
   res.writeHead(code, {
     'content-type': 'application/json',
-    'access-control-allow-origin': '*',
+    'access-control-allow-origin': ALLOWED_ORIGIN || 'http://localhost:8899',
     'access-control-allow-methods': 'GET, POST, OPTIONS',
-    'access-control-allow-headers': 'content-type'
+    'access-control-allow-headers': 'content-type, x-dsh-bridge-token'
   })
   res.end(JSON.stringify(payload))
 }
@@ -28,7 +61,16 @@ const readBody = (req) => new Promise((resolve) => {
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://localhost')
   console.log(`[req] ${req.method} ${url.pathname}`)
-  if (req.method === 'OPTIONS') { res.writeHead(204); return res.end() }
+  if (req.method === 'OPTIONS') { res.writeHead(204, { 'access-control-allow-origin': ALLOWED_ORIGIN || 'http://localhost:8899', 'access-control-allow-methods': 'GET, POST, OPTIONS', 'access-control-allow-headers': 'content-type, x-dsh-bridge-token' }); return res.end() }
+
+  // v0.4.0: token 分发端点——扩展无法读 Node 文件系统，经回环端点取共享 token。
+  // 本端点不鉴权（鸡生蛋问题），但 server 已绑定 127.0.0.1，仅本机进程可达，风险可控。
+  if (req.method === 'GET' && url.pathname === '/__token') {
+    return json(res, 200, { ok: true, token: BRIDGE_TOKEN })
+  }
+
+  // 业务端点统一鉴权（/stats /__watchdog 也鉴权，防信息泄露）
+  if (!authOk(req)) return json(res, 401, { ok: false, error: 'unauthorized' })
 
   if (req.method === 'POST' && url.pathname === '/create-task') {
     const body = JSON.parse((await readBody(req)) || '{}')
@@ -94,4 +136,5 @@ const server = http.createServer(async (req, res) => {
   json(res, 404, { ok: false, error: 'not found' })
 })
 
-server.listen(8899, () => console.log('[dsh-relay bridge] listening on http://127.0.0.1:8899'))
+// v0.4.0: 显式绑定 127.0.0.1（默认 0.0.0.0 会暴露到局域网，改进方案 P0-1 修复）
+server.listen(8899, '127.0.0.1', () => console.log('[dsh-relay bridge] listening on http://127.0.0.1:8899（仅本机）'))

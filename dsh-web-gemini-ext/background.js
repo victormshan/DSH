@@ -16,8 +16,28 @@ let polling = false           // 防并发重入
 let consecutiveFails = 0
 const tabActivity = new Map() // v2.3-1: { tabId: lastUsedAt } —— 标签页活跃度（多 Tab 负载均衡）
 
+// v0.4.0: 共享 token 认证（与 bridge-server 同机读取 bridge.token；文件缺失时 bridge 处于
+// 未认证模式会 401，此时明确报错引导用户检查 bridge 版本/重启，而非静默失败）
+let bridgeToken = ''
+try {
+  bridgeToken = (await (await fetch(BRIDGE + '/__token')).json()).token || ''
+} catch { /* 首次加载 bridge 可能未起，pollOnce 时再取 */ }
+
+async function ensureToken() {
+  if (bridgeToken) return bridgeToken
+  try {
+    const t = await (await fetch(BRIDGE + '/__token')).json()
+    bridgeToken = (t && t.token) || ''
+  } catch { /* 仍不可达 */ }
+  return bridgeToken
+}
+
 async function bridgeFetch(path, opts) {
-  const r = await fetch(BRIDGE + path, opts)
+  const token = await ensureToken()
+  const r = await fetch(BRIDGE + path, {
+    ...opts,
+    headers: { ...(opts && opts.headers), 'x-dsh-bridge-token': token }
+  })
   return r.json().catch(() => ({ ok: false }))
 }
 
@@ -123,10 +143,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     ;(async () => {
       const tabs = await chrome.tabs.query({ url: 'https://gemini.google.com/*' }).catch(() => [])
       const stats = await bridgeFetch('/stats').catch(() => null)
-      // 探测守护进程：本机 node 进程列表含 bridge-watchdog（同一机器场景）
+      // v0.4.0: /__watchdog 也走 bridgeFetch（带 token），否则 401
       let watchdog = 'unknown'
       try {
-        const wd = await fetch('http://localhost:8899/__watchdog').then((r) => r.json()).catch(() => null)
+        const wd = await bridgeFetch('/__watchdog')
         watchdog = wd && wd.alive ? 'up' : 'down'
       } catch { watchdog = 'down' }
       sendResponse({

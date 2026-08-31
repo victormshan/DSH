@@ -761,19 +761,42 @@ export function apply(ctx) {
   // 发任务到 BRIDGE_BASE/create-task，轮询 task-result 直到 done；无 API Key、免配额。
   // 返回 { ok, text } 或 { ok:false, error }。
   // v3.2.6: 默认轮询超时 150s → 300s（长回答在 Gemini 网页生成耗时可能超 150s，避免误判 bridge 超时）。
+  // v3.3.0（安全 P0-1）: 共享 token 认证——从 bridge /__token 拉取后缓存，请求带 X-DSH-Bridge-Token。
+  let bridgeTokenCache = null
+  let bridgeTokenAt = 0
+  async function getBridgeToken() {
+    if (bridgeTokenCache && Date.now() - bridgeTokenAt < 3600000) return bridgeTokenCache
+    try {
+      const r = await fetch(`${BRIDGE_BASE}/__token`)
+      const d = await r.json().catch(() => null)
+      if (d && d.ok && d.token) {
+        bridgeTokenCache = d.token
+        bridgeTokenAt = Date.now()
+        return d.token
+      }
+    } catch { /* bridge 未运行 */ }
+    return bridgeTokenCache || ''
+  }
+  async function bridgeHeaders() {
+    const token = await getBridgeToken()
+    return { 'content-type': 'application/json', ...(token ? { 'x-dsh-bridge-token': token } : {}) }
+  }
   async function webGeminiAsk(prompt, timeoutMs = 300000) {
     try {
       const c = await fetch(`${BRIDGE_BASE}/create-task`, {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers: await bridgeHeaders(),
         body: JSON.stringify({ prompt })
       })
       const cd = await c.json().catch(() => null)
-      if (!cd || !cd.ok || !cd.id) return { ok: false, error: 'bridge create-task 失败（中转服务器未运行？）' }
+      if (!cd || !cd.ok || !cd.id) {
+        if (c.status === 401) return { ok: false, error: 'bridge 401：token 不匹配（扩展与 server 版本/密钥不一致，请重启 bridge 并刷新扩展）' }
+        return { ok: false, error: 'bridge create-task 失败（中转服务器未运行？）' }
+      }
       const deadline = Date.now() + timeoutMs
       while (Date.now() < deadline) {
         await new Promise((r) => setTimeout(r, 3000))
-        const t = await fetch(`${BRIDGE_BASE}/task-result/${cd.id}`)
+        const t = await fetch(`${BRIDGE_BASE}/task-result/${cd.id}`, { headers: await bridgeHeaders() })
         const td = await t.json().catch(() => null)
         if (td && td.ok && td.task && td.task.status === 'done' && td.task.answer) {
           return { ok: true, text: td.task.answer }
@@ -1563,10 +1586,12 @@ export function apply(ctx) {
     let bridge = { ok: false, error: '未探测' }
     try {
       const ctrl = AbortSignal.timeout(2500)
-      const r = await fetch(`${BRIDGE_BASE}/stats`, { signal: ctrl })
+      // v3.3.0（安全 P0-1）: 探测 /__token（免鉴权端点）判断连通性；/stats 已要求 token，
+      // 无 token 探测会 401 误报"响应异常"。
+      const r = await fetch(`${BRIDGE_BASE}/__token`, { signal: ctrl })
       const d = await r.json().catch(() => null)
       bridge = d && d.ok !== false
-        ? { ok: true, total: d.total, byStatus: d.byStatus || {} }
+        ? { ok: true, note: 'bridge 在线（token 就绪）' }
         : { ok: false, error: 'bridge 响应异常' }
     } catch (e) {
       bridge = { ok: false, error: String((e && e.message) || e).slice(0, 120) }

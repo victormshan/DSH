@@ -5,9 +5,9 @@
 > **权威来源**：本目录（`victormshan/DSH` 仓库内的 `dsh-web-relay/`）是唯一维护的源码位置。
 > 修改、提交、发版都在此进行；`deploy.ps1` 负责部署到 dsh profile 的安装目录。
 
-- **当前版本**：1.3.0（协议 v1.9：AutoIteration 自动迭代多版本演进 + 全角色降级链 external→dialog→pause；v1.8 混合模式 + v1.8.1 澄清全部保留）
+- **当前版本**：见 [`package.json`](./package.json) 的 `version` 字段（本行不手写版本号，避免漂移——改进方案 P1-3 单一数据源；当前协议 v1.9：AutoIteration 自动迭代多版本演进 + 全角色降级链 external→dialog→pause；v1.8 混合模式 + v1.8.1 澄清全部保留）
 - **说明文档**：[docs/dsh-web-relay-说明书.md](docs/dsh-web-relay-说明书.md)
-- **版本快照**：[releases/v1.2.0/](releases/v1.2.0/)（全量文件快照，不依赖增量 Edit）｜[releases/v1.1.0/](releases/v1.1.0/)（上一里程碑）｜[v1.0.0/](releases/v1.0.0/)｜[v0.9.0/](releases/v0.9.0/)｜[v0.8.0/](releases/v0.8.0/)｜[v0.7.0/](releases/v0.7.0/)
+- **版本快照**：[releases/v1.2.0/](releases/v1.2.0/)（全量文件快照，不依赖增量 Edit）｜[releases/v1.1.0/](releases/v1.1.0/)（上一里程碑）｜[v1.0.0/](releases/v1.0.0/)｜[v0.9.0/](releases/v0.9.0/)｜[v0.8.0/](releases/v0.8.0/)｜[v0.7.0/](releases/v0.7.0/)（版本快照为历史里程碑，不随当前版本滚动）
 - **部署**：运行 `deploy.ps1`（含版本断言检查）或手动复制 `lib/`、`package.json`、`cordis.patch.yml` 到 `C:\Users\Administrator\.dsh\profiles\web\node_modules\dsh-web-relay\`
 
 ---
@@ -16,12 +16,12 @@
 
 ```
 dsh-web-relay/
-├── lib/                    # 插件源码（v1.3.0 权威版本）
-│   ├── index.js            # Host half（约 2600 行：协议 v1.5/v1.6/v1.7/v1.8/v1.9 多版本、Step List、并发调度、依赖门控、审核降级链、auto-review、Planning、alternatives/importance、restructure、原子打回、mainagent 自动豁免、AutoIteration、全角色降级链）
-│   └── client.js           # Browser bundle（约 1930 行：平铺布局 + Step List UI + 协议版本选择器(v1.5-v1.9) + planning 开关 + 自动/批量审核按钮 + importance/mainagent 徽标 + restructure 重构 UI + 语言设置）
-├── package.json            # 插件元数据（version 1.3.0）
+├── lib/                    # 插件源码（版本以 package.json 为准）
+│   ├── index.js            # Host half（约 3200 行：协议 v1.5/v1.6/v1.7/v1.8/v1.9 多版本、Step List、并发调度、依赖门控、审核降级链、auto-review、Planning、alternatives/importance、restructure、原子打回、mainagent 自动豁免、AutoIteration、全角色降级链、Swarm 双角色盲审）
+│   └── client.js           # Browser bundle（平铺布局 + Step List UI + 协议版本选择器(v1.5-v1.9) + planning 开关 + 自动/批量审核按钮 + importance/mainagent 徽标 + restructure 重构 UI + 语言设置）
+├── package.json            # 插件元数据（version 为唯一版本数据源）
 ├── cordis.patch.yml        # profile 挂载补丁
-├── docs/                   # 说明书（适用版本 1.3.0）
+├── docs/                   # 说明书
 ├── releases/               # 里程碑全量快照
 ├── deploy.ps1              # 部署脚本（版本断言 + 复制到安装目录）
 ├── .gitattributes          # LF 换行强制
@@ -69,8 +69,16 @@ git tag v0.7.0
 
 ## 版本历史
 
+> 注：下表为历史里程碑记录；**当前版本以 `package.json` 为准**（单一数据源，见改进方案 P1-3）。
+
 | 版本 | 协议 | 内容 |
 |---|---|---|
+| 3.2.6 | v1.9 | 长回答截断根治：dialog/claude 超时 60s/120s→300s、web-gemini 150s→300s、error/aborted chunk 拦截、extractChunkText 跳过 reason/error/code/message 键 |
+| 3.2.5 | v1.9 | 产物摘要截断显式标注"（摘要已截断，全文见产物文件）" |
+| 3.2.2 | v1.9 | reviewChannel 参数（auto / web-gemini 强制网页审核） |
+| 3.2.0 | v1.9 | Swarm 双角色盲审（Security-Auditor / Refactoring-Architect，AND 门共识） |
+| 3.1.0 | v1.9 | 拒收原因聚类 + 案例库注入（Top-K≤3）+ Prompt 自主进化 |
+| 3.0.1 | v1.9 | 审核降级链加入 web-gemini 网页通道 |
 | 1.3.0 | v1.9 | AutoIteration 自动迭代（{"iterations":N} 多版本自动演进、版间门 Vn+1、连续打回≥3 熔断 paused）+ 全角色降级链（ask/审核 external→dialog→pause，channel=dialog-fallback） |
 | 1.2.1 | v1.8（+v1.8.1 澄清） | restructure 悬空依赖校验 400 + 打回清空 reviewedBy + review:null 语义 + 安全护栏优先（三方双视角评估定案） |
 | 1.2.0 | v1.8 | 混合模式 importance 驱动分工（low 免审 / medium 批量轻审 / high 三方严格审）+ review:false 硬开关 + restructure 状态隔离 + 批量原子打回 + 5 段模板缺省对齐 |

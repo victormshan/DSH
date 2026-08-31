@@ -26,7 +26,8 @@ let lastRestartAt = 0
 
 function bridgeAlive() {
   return new Promise((resolve) => {
-    const req = http.get({ host: '127.0.0.1', port: BRIDGE_PORT, path: '/stats', timeout: 2000 }, (res) => {
+    // v0.4.0: 探测 /__token（免鉴权端点）而非 /stats（后者 401 会误判 bridge 死亡导致反复重启）
+    const req = http.get({ host: '127.0.0.1', port: BRIDGE_PORT, path: '/__token', timeout: 2000 }, (res) => {
       res.resume()
       resolve(res.statusCode === 200)
     })

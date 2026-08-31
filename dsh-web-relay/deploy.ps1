@@ -1,6 +1,10 @@
-﻿# dsh-web-relay 部署脚本（含版本断言）
+# dsh-web-relay 部署脚本（含版本断言）
 # 用法: powershell -ExecutionPolicy Bypass -File deploy.ps1 [-RepoRoot D:\dsh-web-relay]
-# 作用: 校验源仓库版本 == 安装目录版本后，将 lib/ + package.json + cordis.patch.yml 复制到安装目录。
+# 作用: 校验源仓库版本与安装目录版本关系后，将 lib/ + package.json + cordis.patch.yml 复制到安装目录。
+# 版本断言规则（改进方案 P1-2 修正：原"相等才部署"方向反了——正常部署场景恰是"源新于装"）：
+#   源 > 装 → 允许覆盖（正常升级部署）
+#   源 = 装 → 提示已是最新，跳过
+#   源 < 装 → 报错阻止（防误回退）
 param(
     [string]$RepoRoot = (Split-Path -Parent $MyInvocation.MyCommand.Path),
     [string]$InstallDir = "$env:USERPROFILE\.dsh\profiles\web\node_modules\dsh-web-relay"
@@ -17,10 +21,27 @@ $instVersion = (Get-Content "$InstallDir\package.json" -Raw | ConvertFrom-Json).
 
 Write-Host "源仓库版本: $srcVersion  安装目录版本: $instVersion"
 
-if ($srcVersion -ne $instVersion) {
-    Write-Warning "版本不匹配：源仓库 $srcVersion != 安装目录 $instVersion。"
-    Write-Warning "为避免在未知基线上强行覆盖，部署已中止。请先确认安装目录状态（如需要可先备份/回退）。"
+# 语义化版本比较（x.y.z 逐段比较；z 缺失按 0 处理）
+function Compare-Version([string]$a, [string]$b) {
+    $pa = $a -split '\.' | ForEach-Object { [int]($_ -replace '\D', '0') }
+    $pb = $b -split '\.' | ForEach-Object { [int]($_ -replace '\D', '0') }
+    for ($i = 0; $i -lt [Math]::Max($pa.Count, $pb.Count); $i++) {
+        $va = if ($i -lt $pa.Count) { $pa[$i] } else { 0 }
+        $vb = if ($i -lt $pb.Count) { $pb[$i] } else { 0 }
+        if ($va -ne $vb) { return $va - $vb }
+    }
+    return 0
+}
+
+$cmp = Compare-Version $srcVersion $instVersion
+if ($cmp -lt 0) {
+    Write-Warning "版本回退风险：源仓库 $srcVersion < 安装目录 $instVersion。"
+    Write-Warning "为避免覆盖较新基线，部署已中止。如需强制回退请手动操作并确认。"
     exit 1
+}
+if ($cmp -eq 0) {
+    Write-Host "源仓库与安装目录版本一致（$srcVersion），已是最新，无需部署。"
+    exit 0
 }
 
 # ---- 部署前备份 ----
@@ -34,4 +55,4 @@ foreach ($f in @('lib\index.js', 'lib\client.js', 'package.json', 'cordis.patch.
     Write-Host "  已部署: $f"
 }
 
-Write-Host "部署完成（版本 $srcVersion）。请重启 dsh web 使插件生效。"
+Write-Host "部署完成（版本 $srcVersion，安装目录 $instVersion → $srcVersion）。请重启 dsh web 使插件生效。"
