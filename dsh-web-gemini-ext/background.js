@@ -116,6 +116,30 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg && msg.type === 'bridge-ready') {
     pollOnce()
     sendResponse({ ok: true, polling: true })
+    return false
+  }
+  // v0.3.0: popup 状态面板——汇总 bridge/守护/标签页/队列状态
+  if (msg && msg.type === 'get-status') {
+    ;(async () => {
+      const tabs = await chrome.tabs.query({ url: 'https://gemini.google.com/*' }).catch(() => [])
+      const stats = await bridgeFetch('/stats').catch(() => null)
+      // 探测守护进程：本机 node 进程列表含 bridge-watchdog（同一机器场景）
+      let watchdog = 'unknown'
+      try {
+        const wd = await fetch('http://localhost:8899/__watchdog').then((r) => r.json()).catch(() => null)
+        watchdog = wd && wd.alive ? 'up' : 'down'
+      } catch { watchdog = 'down' }
+      sendResponse({
+        bridge: stats && stats.ok ? 'up' : 'down',
+        stats: stats || null,
+        geminiTabs: tabs.length,
+        watchdog,
+        pollMs: consecutiveFails >= 3 ? POLL_BACKOFF_MS : POLL_MS,
+        consecutiveFails,
+        version: chrome.runtime.getManifest().version
+      })
+    })()
+    return true   // 异步 sendResponse
   }
   return false
 })

@@ -86,6 +86,11 @@ const server = http.createServer(async (req, res) => {
     } })
   }
 
+  // v0.3.0: 守护状态端点——popup 用它探测守护链是否正常
+  if (req.method === 'GET' && url.pathname === '/__watchdog') {
+    return json(res, 200, { ok: true, alive: true, pid: process.pid, uptime: Math.round(process.uptime()) })
+  }
+
   json(res, 404, { ok: false, error: 'not found' })
 })
 

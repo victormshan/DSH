@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>dsh-web-gemini-ext</title>
+  <style>
+    :root {
+      --bg: #1e1e2e;
+      --card: #27273a;
+      --fg: #e4e4ef;
+      --dim: #9a9ab0;
+      --ok: #4ade80;
+      --warn: #facc15;
+      --bad: #f87171;
+      --accent: #818cf8;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      width: 300px;
+      background: var(--bg);
+      color: var(--fg);
+      font: 13px/1.5 'Segoe UI', system-ui, sans-serif;
+      padding: 12px;
+    }
+    h1 {
+      font-size: 14px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 10px;
+    }
+    .dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
+    .dot.up { background: var(--ok); box-shadow: 0 0 6px var(--ok); }
+    .dot.down { background: var(--bad); box-shadow: 0 0 6px var(--bad); }
+    .dot.warn { background: var(--warn); box-shadow: 0 0 6px var(--warn); }
+    .card {
+      background: var(--card);
+      border-radius: 8px;
+      padding: 10px 12px;
+      margin-bottom: 8px;
+    }
+    .row { display: flex; justify-content: space-between; align-items: center; padding: 3px 0; }
+    .row .k { color: var(--dim); }
+    .row .v { font-weight: 600; }
+    .v.ok { color: var(--ok); }
+    .v.bad { color: var(--bad); }
+    .v.warn { color: var(--warn); }
+    .hint { color: var(--dim); font-size: 11px; margin-top: 8px; line-height: 1.6; }
+    .btn {
+      width: 100%;
+      margin-top: 8px;
+      padding: 7px;
+      border: none;
+      border-radius: 6px;
+      background: var(--accent);
+      color: #fff;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .btn:hover { filter: brightness(1.1); }
+    .badge { font-size: 11px; color: var(--dim); }
+  </style>
+</head>
+<body>
+  <h1><span class="dot" id="bridge-dot"></span> dsh-web-gemini <span class="badge" id="ver"></span></h1>
+
+  <div class="card">
+    <div class="row"><span class="k">Bridge 中转服务器</span><span class="v" id="bridge-txt">…</span></div>
+    <div class="row"><span class="k">守护进程 (watchdog)</span><span class="v" id="wd-txt">…</span></div>
+    <div class="row"><span class="k">Gemini 标签页</span><span class="v" id="tabs-txt">…</span></div>
+    <div class="row"><span class="k">轮询间隔</span><span class="v" id="poll-txt">…</span></div>
+  </div>
+
+  <div class="card">
+    <div class="row"><span class="k">待处理任务</span><span class="v" id="q-pending">…</span></div>
+    <div class="row"><span class="k">处理中</span><span class="v" id="q-processing">…</span></div>
+    <div class="row"><span class="k">已完成</span><span class="v" id="q-done">…</span></div>
+  </div>
+
+  <button class="btn" id="refresh">刷新状态</button>
+
+  <div class="hint" id="hint"></div>
+  <script src="popup.js"></script>
+</body>
+</html>
