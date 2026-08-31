@@ -678,7 +678,10 @@ export function apply(ctx) {
       if (Array.isArray(v)) { for (const x of v) walk(x, depth + 1); return }
       if (v && typeof v === 'object') {
         for (const k of Object.keys(v)) {
-          if (k === 'type' || k === 'role' || k === 'id' || k === 'index' || k === 'finishReason' || k === 'finish_reason') continue
+          // v3.2.6: 跳过元数据/错误/中止原因键——finish chunk 的 reason 含
+          // 'aborted'/'DeepSeek request aborted by caller'/'ABORTED'，原实现被递归提取混入正文
+          if (k === 'type' || k === 'role' || k === 'id' || k === 'index' || k === 'finishReason' || k === 'finish_reason'
+              || k === 'reason' || k === 'error' || k === 'code' || k === 'message') continue
           walk(v[k], depth + 1)
         }
       }
@@ -702,11 +705,13 @@ export function apply(ctx) {
     const selProvider = sel && typeof sel.provider === 'string' && sel.provider ? sel.provider : null
     const selModel = sel && typeof sel.model === 'string' && sel.model ? sel.model : null
     const messages = [{ role: 'user', content: [{ type: 'text', text: prompt }] }]
+    // v3.2.6: 长回答根治——60s → 300s（复杂任务（多版本方案/长推理）常超 60s 被 abort，
+    // 表现为回答截断 + "DeepSeek request aborted by caller" 混入正文）。
     const baseOpts = {
       messages,
       tools: [],
       stream: false,
-      signal: AbortSignal.timeout(60000)
+      signal: AbortSignal.timeout(300000)
     }
     // 尝试顺序：currentSelection provider/model → 显式 deepseek-official → llm 默认路由（不带 provider）
     const attempts = []
@@ -717,8 +722,11 @@ export function apply(ctx) {
         const chunks = []
         const stream = llm.stream({ ...baseOpts, ...extra })
         for await (const chunk of stream) {
-          if (chunk && chunk.type === 'error') return { ok: false, error: String(chunk.error || 'llm error') }
-          if (chunk && chunk.type === 'aborted') return { ok: false, error: 'llm aborted' }
+          // v3.2.6: error/aborted chunk 立即返回失败（不把错误文本拼入 answer；
+          // 原实现对 type==='error' 返回、type==='aborted' 返回，但其他异常结构仍被 extractChunkText 误收）
+          if (chunk && (chunk.type === 'error' || chunk.type === 'aborted')) {
+            return { ok: false, error: String(chunk.error || chunk.message || 'llm error/aborted') }
+          }
           const text = extractChunkText(chunk)
           if (text) chunks.push(text)
         }
@@ -752,7 +760,8 @@ export function apply(ctx) {
   // ---------- v1.9 web-gemini 通道：本地中转（Chrome 扩展 dsh-web-gemini-ext）----------
   // 发任务到 BRIDGE_BASE/create-task，轮询 task-result 直到 done；无 API Key、免配额。
   // 返回 { ok, text } 或 { ok:false, error }。
-  async function webGeminiAsk(prompt, timeoutMs = 150000) {
+  // v3.2.6: 默认轮询超时 150s → 300s（长回答在 Gemini 网页生成耗时可能超 150s，避免误判 bridge 超时）。
+  async function webGeminiAsk(prompt, timeoutMs = 300000) {
     try {
       const c = await fetch(`${BRIDGE_BASE}/create-task`, {
         method: 'POST',
@@ -1686,10 +1695,14 @@ export function apply(ctx) {
               messages: [{ role: 'user', content: [{ type: 'text', text: guidedPrompt }] }],
               tools: [],
               stream: false,
-              signal: AbortSignal.timeout(120000)
+              signal: AbortSignal.timeout(300000)   // v3.2.6: 120s → 300s，长回答不再被 abort
             })
             for await (const chunk of stream) {
-              if (chunk && chunk.type === 'error') r = { ok: false, error: String(chunk.error || 'llm error') }
+              // v3.2.6: error/aborted chunk 立即终止，不再提取文本（原只设 r 未 break，错误文本被拼入 answer）
+              if (chunk && (chunk.type === 'error' || chunk.type === 'aborted')) {
+                r = { ok: false, error: String(chunk.error || chunk.message || 'llm error/aborted') }
+                break
+              }
               const text = extractChunkText(chunk)
               if (text) chunks.push(text)
             }
