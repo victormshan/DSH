@@ -651,7 +651,10 @@ export function apply(ctx) {
         const target = await fs.resolve(p, { cwd: base })
         const text = await fs.readText(target).catch(() => null)
         if (text == null) { parts.push(`（无法读取产物：${p}）`); continue }
-        parts.push(`--- ${p} ---\n${clip(text, 2000)}`)
+        // v3.3-1: 截断时显式标注（原 2000 字符静默截断导致外部 AI 误判长文档"文件被截断"）
+        const body = String(text)
+        const clipped = body.length > 2000 ? clip(body, 2000) + '\n（摘要已截断，全文见产物文件）' : body
+        parts.push(`--- ${p} ---\n${clipped}`)
       } catch (err) { parts.push(`（产物路径无法解析：${p}）`) }
     }
     return '【上一步产物摘要（v2.2-1 上下文增强，自动注入）】\n' + parts.join('\n\n')
