@@ -306,3 +306,20 @@ CREATE TABLE macro (series TEXT, date TEXT, value REAL, PRIMARY KEY (series, dat
 | 落地步骤 | 五/六/十一章 | ✅ |
 
 > 结论：5 版迭代达成——方案完备、可实施、无重大逻辑缺陷。
+
+---
+
+## 十三、优化版本索引（2026-08-31 追加）
+
+> 针对本方案的 5 个优化方向版本（纯方案、不含代码）已单独落盘：
+> `dsh-web-relay-stock-ai-001-opt5-ext.md`（外部 AI 方案版，expr-2026-08-31_18-46-49）
+
+| 优化版 | 关键词 | 对应本方案章节的增强点 |
+|---|---|---|
+| V1.1 | 多源异构、动静缓存 | 八章数据层：多源主备降级 + LevelDB/Redis 动静分离 |
+| V1.2 | 事件驱动、流式因子 | 二章采集/信号：盘中异动事件总线 + SSE 流式 Token |
+| V1.3 | 拓扑并行、混合风控 | 三章风控：parallel_group 三维并行 + importance 分级严审 |
+| V1.4 | 回测闭环、自动演进 | 十章回测：AutoIteration 版间门 + 30 天滚动窗口自动调参 |
+| V1.5 | Serverless、降级容灾 | 十一章部署：无服务器化 + 三级降级链全覆盖 |
+
+> 对比表与组合建议见 opt5-ext.md 第 6 章；另一版优化方向（V1-V5：可靠性/流式/因子/自适应/极简）见 `dsh-web-relay-stock-ai-001-opt5.md`。
