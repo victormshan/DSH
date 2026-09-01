@@ -1,0 +1,19 @@
+{
+  "name": "claude-step-relay",
+  "version": "0.1.0",
+  "description": "轻量级 Step List + 三方轨迹记录 MCP server，供 Claude Code 使用。思路借鉴 dsh-web-relay，但去掉外部 AI 审核降级链、DAG 并发调度、协议多版本兼容——只保留任务拆分为 Step List 与可追溯轨迹这一核心价值，Claude 自己驱动状态更新，不设阻塞式外部审核门槛。",
+  "private": true,
+  "type": "module",
+  "main": "index.mjs",
+  "bin": {
+    "claude-step-relay": "./index.mjs"
+  },
+  "scripts": {
+    "test": "node --test test/*.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "zod": "^3.23.8"
+  },
+  "license": "MIT"
+}
