@@ -74,5 +74,13 @@ claude mcp add claude-step-relay -- node /绝对路径/claude-step-relay/index.m
 npm test
 ```
 
-用 Node 内置 `node:test`，测试跑在临时目录（`STEP_RELAY_DIR` 指向 `os.tmpdir()` 下的隔离目录），
-不会污染真实 `step-relay/` 数据。
+用 Node 内置 `node:test`，两个测试文件、共 26 个用例：
+
+- `test/store.test.js`（18 例）：直接调用 `lib/store.mjs`，覆盖正常流程、输入校验（空标题/空
+  steps/非法 status）、不存在任务的各类报错、路径穿越拦截、exprId 并发唯一性、超长文本/emoji/
+  markdown 特殊字符、50 步大规模 Step List。
+- `test/mcp-protocol.test.js`（8 例）：真实拉起 `index.mjs` 子进程，走完整 MCP stdio 协议——
+  工具注册、zod 入参校验的错误形态、覆盖式 `set_steps` 语义、10 路并发 `update_step`。
+
+全程跑在临时目录（`STEP_RELAY_DIR` 指向 `os.tmpdir()` 下的隔离目录），不会污染真实
+`step-relay/` 数据；协议层测试会各自拉起一个子进程，整体耗时数十秒属正常。
