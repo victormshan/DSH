@@ -969,6 +969,9 @@ window.__ModuleLoader__.load({
           if (!data.ok) { setError(data.error || 'request failed'); return }
           setAnswer(data.answer || '')
           setSavedPath(data.savedPath || '')
+            if (data.fallbackReason) {
+              setError('⚠ 自动降级提示：' + data.fallbackReason + '（本次由 ' + (data.providerLabel || data.channel || '外部通道') + ' 完成回答）')
+            }
             setExprId(data.id || '')
           setPhase('done')
         } catch (e) { setError(String(e?.message || e)) }
@@ -1387,9 +1390,29 @@ window.__ModuleLoader__.load({
           if (!data.ok) { setError(data.error || 'request failed'); return }
           setAnswer(data.answer || '')
           setSavedPath(data.savedPath || '')
+            if (data.fallbackReason) {
+              setError('⚠ 自动降级提示：' + data.fallbackReason + '（本次由 ' + (data.providerLabel || data.channel || '外部通道') + ' 完成回答）')
+            }
             setExprId(data.id || '')
             setSteps(data.steps || [])
             setStepState(null)
+            const acts = Array.isArray(data.actions) ? data.actions : []
+            if (data.handoffText && !data.agentWoken) {
+              setError('已生成 handoff，但未能自动唤醒主 agent：' + (data.wakeReason || '未知原因'))
+            }
+            if (acts.length > 0) {
+              setActions(acts)
+              const chk = {}
+              for (const a of acts) chk[a.index] = !!a.checked
+              setChecks(chk)
+              setNeedsAgent(data.needsAgent || null)
+              setPhase('preview')
+              return
+            }
+            setActions(null)
+            setChecks({})
+            setNeedsAgent(null)
+            setPhase('done')
             if (data.handoffText && !data.agentWoken) {
               setError('已生成 handoff，但未能自动唤醒主 agent：' + (data.wakeReason || '未知原因'))
             }
@@ -1601,7 +1624,7 @@ window.__ModuleLoader__.load({
 
       // footer actions depend on phase
       let footer = null
-      if (provider === 'gemini-free' || provider === 'claude' || provider === 'web-gemini') {
+      if (phase !== 'preview' && (provider === 'gemini-free' || provider === 'claude' || provider === 'web-gemini')) {
         const stopped = stepState && stepState.status === 'stopped'
         footer = h('div', { style: { display: 'flex', gap: 8, alignItems: 'center', width: '100%' } },
           h('button', { onClick: () => submitAsk(provider), disabled: sending, style: { ...btnStyle, opacity: sending ? 0.6 : 1 } },

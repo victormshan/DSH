@@ -58,7 +58,7 @@ export const WEB_RELAY_PROTOCOL_VERSION_V19 = 'v1.9'
 export const WEB_RELAY_PROTOCOL = [
   '三方主体（web-relay 语境）：用户 (the human) / 主 agent (the tool-using agent in the main harness session，负责执行与收口) / 外部AI (external web AI — Gemini/DeepSeek 网页版或 free API，负责提供方案与回答)。全程一致使用这三个称谓。',
   '协作规则：任务记录保存在 web-relay/experiments/，三方对话流水（轨迹）保存在 web-relay/traces/。用户在 web-relay 面板发起任务，外部AI 回答，主 agent 按需执行并收口；主 agent 的收口结论通过 POST /dsh-web-relay/trace 追加到对应轨迹，不再写入 side/。',
-  '规则 8（Triage 分流）：小改动 → 直接给结论。复杂任务（多步实现/设计分歧/接口未验证）→ 回复生成时必须同时包含：① json:agent-action 代码块（含 wake_agent/plan 动作，reason 说明）② 机器可读的 steps 数组（Step List）。外部 AI 若未遵守，粘贴端将提示一键补全（见面板护栏）——但补全不改变内容本质，仅补格式。',
+  '规则 8（Triage 分流）：小改动 → 直接给结论。复杂任务（多步实现/设计分歧/接口未验证）→ 回复必须包含一个 json:agent-action 代码块（含 wake_agent/plan 动作，reason 说明），且该代码块内必须包含完整的机器可读 steps 数组（Step List）。禁止在同一回复中重复输出相同的 Step List；机器可读 steps 只需存在于 json:agent-action 内。外部 AI 若未遵守，粘贴端将提示一键补全（见面板护栏）——但补全不改变内容本质，仅补格式。',
   'Step List 执行协议（v1.3）：每个复杂任务必须提供结构化 steps。每步默认需要外部 AI 审核（review: true）；主 agent 按步骤执行，每步完成后回写轨迹并等待审核；审核通过后主 agent 继续下一步，被打回则主 agent 修改后重新提交。主 agent 在执行中可提出落地方案变更，审核方核实后更新步骤或通过。',
   'Planning & Architect 协议（v1.4）：复杂任务可先进入 planning 阶段。外部 AI 作为架构师，先深挖任务场景、边界与影响面；如需本地代码/配置上下文，可通过 context_requests 请求主 agent 做只读探路；方案确认后再进入 executing 阶段输出 steps。context_requests 仅允许只读文件读取与搜索，严禁修改代码。',
   '审核降级链协议（v1.5）：每步完成进入 review 后，按 外部AI → 对话模型（无工具）→ 用户手动 的顺序自动审核。无 GEMINI_API_KEY 或调用失败时，自动降级为对话模型（无工具，只读 acceptance 输出 approved/rejected + 意见），仍失败则展开手动审核框。每步记录审核来源（reviewedBy: external | dialog | manual）；任务全部审核完成后统一汇总各步审核来源。',
@@ -94,9 +94,9 @@ export const WEB_RELAY_EXTERNAL_AI_SKILL = [
   '',
   '## 协作规则（规则 8 Triage，必须遵守）',
   '- 小改动 / 直接回答：直接给结论，无需 Payload。',
-  '- 复杂任务（多步实现 / 设计分歧 / 接口未验证）：输出必须同时包含',
-  '  ① json:agent-action 代码块（含 wake_agent/plan 动作，reason 说明）',
-  '  ② 机器可读 steps 数组（Step List）。',
+  '- 复杂任务（多步实现 / 设计分歧 / 接口未验证）：必须输出一个 json:agent-action 代码块，且其中必须包含完整机器可读 steps 数组（Step List）；禁止重复输出同一份 Step List。',
+  '',
+  '',
   '  若未遵守，relay 粘贴端会提示一键补全——那只是补格式，不改变内容本质。',
   '',
   '## json:agent-action 格式（含 steps）',
@@ -249,7 +249,7 @@ export const WEB_RELAY_EXTERNAL_AI_SKILL = [
 export const WEB_RELAY_PROTOCOL_EN = [
   'Three-party roles (web-relay context): [User] (the human) / [Main agent] (the tool-using agent in the main harness session, responsible for execution and finalization) / [External AI] (external web AI — Gemini/DeepSeek web version or free API, providing plans and answers). Use these three labels consistently.',
   'Collaboration rules: task records are saved under web-relay/experiments/, the three-party trace stream under web-relay/traces/. The user starts a task in the web-relay panel, the external AI answers, the main agent executes and finalizes as needed; the main agent appends its closure via POST /dsh-web-relay/trace to the matching trace, never into side/.',
-  'Rule 8 (Triage): small changes → answer directly. Complex tasks (multi-step implementation / design divergence / unverified interfaces) → your reply MUST include ① a json:agent-action block (with wake_agent/plan actions and a reason) ② a machine-readable steps array (Step List). If you do not comply, the paste side will offer one-click completion (panel guardrail) — that only fixes the format, never the content.',
+  'Rule 8 (Triage): small changes → answer directly. Complex tasks (multi-step implementation / design divergence / unverified interfaces) → your reply MUST include a json:agent-action block (with wake_agent/plan actions and a reason), and that block MUST contain the complete machine-readable steps array (Step List). Do NOT repeat the same Step List twice in one reply; the machine-readable steps only need to exist inside the json:agent-action block. If you do not comply, the paste side will offer one-click completion (panel guardrail) — that only fixes the format, never the content.',
   'Step List execution protocol (v1.3): every complex task must provide structured steps. Each step requires review by default (review: true); the main agent executes steps, writes the trace after each step and waits for review; after approval it continues to the next step, on rejection it revises and resubmits. The main agent may propose implementation changes during execution; the reviewer verifies and updates or approves them.',
   'Planning & Architect protocol (v1.4): complex tasks may enter a planning phase first. The external AI acts as architect, digging into task scope, boundaries and impact; for local code/config context it may request the main agent to do read-only probing via context_requests; after the plan is confirmed it enters the executing phase and outputs steps. context_requests allows only read-only file reads and searches; modifying code is strictly forbidden.',
   'Review degradation chain (v1.5): after each step enters review, auto-review runs in order External AI → dialog model (no tools) → manual user. Without GEMINI_API_KEY or on call failure, it degrades to the dialog model (no tools; reads acceptance and outputs approved/rejected + opinion); if that also fails, a manual review box opens. Each step records its reviewer (reviewedBy: external | dialog | manual); once all steps are reviewed, a reviewer summary is produced.',
@@ -283,9 +283,9 @@ export const WEB_RELAY_EXTERNAL_AI_SKILL_EN = [
   '',
   '## Collaboration rules (Rule 8 Triage — MUST follow)',
   '- Small change / direct answer: answer directly, no payload needed.',
-  '- Complex task (multi-step implementation / design divergence / unverified interfaces): output MUST include',
-  '  ① a json:agent-action block (with wake_agent/plan actions and a reason)',
-  '  ② a machine-readable steps array (Step List).',
+  '- Complex task (multi-step implementation / design divergence / unverified interfaces): output MUST include a json:agent-action block, and that block MUST contain the complete machine-readable steps array (Step List). Do NOT repeat the same Step List twice in one reply.',
+  '',
+  '',
   '  If you do not, the relay paste side will offer one-click completion — that only fixes the format, never the intent.',
   '',
   '## json:agent-action format (with steps)',
@@ -1049,7 +1049,18 @@ export function apply(ctx) {
         /* continue scanning all JSON candidates */
       }
     }
-    return blocks
+    // 去重：同一份 JSON 块被 reasoning + 最终回答重复输出时，只保留第一份，
+      // 避免 Step List 重复、wake_agent 重复触发。
+      const seenBlocks = new Set()
+      const uniqueBlocks = []
+      for (const b of blocks) {
+        const key = b.raw
+        if (!seenBlocks.has(key)) {
+          seenBlocks.add(key)
+          uniqueBlocks.push(b)
+        }
+      }
+      return uniqueBlocks
   }
 
   // Normalize a Gemini Action Payload protocol object into our action list.
@@ -1083,13 +1094,28 @@ export function apply(ctx) {
     function extractAutoIterDecl(text) {
       const src = String(text || '')
       const decl = { iterations: 1, finalAcceptance: null, autoDecision: false }
+      const clamp = (n) => (Number.isInteger(n) && n >= 1 && n <= 10 ? n : null)
+      // 1) 严格 JSON 片段（协议推荐形态），如 {"iterations": 3, "finalAcceptance": "...", "autoDecision": true}
       const m = src.match(/\{\s*"iterations"\s*:\s*(\d+)\s*(?:,\s*"finalAcceptance"\s*:\s*"([^"]*)"\s*)?(?:,\s*"autoDecision"\s*:\s*(true|false)\s*)?\}/)
       if (m) {
-        const n = parseInt(m[1], 10)
-        if (Number.isInteger(n) && n >= 1 && n <= 10) decl.iterations = n
+        const n = clamp(parseInt(m[1], 10))
+        if (n) decl.iterations = n
         if (m[2]) decl.finalAcceptance = m[2]
         if (m[3]) decl.autoDecision = m[3] === 'true'
+        return decl
       }
+      // 2) 叙述式声明兜底（v3.3.2 修复：外部 AI 常把配置写在中文叙述里，
+      //    例：…（配置：`iterations: 3`, `autoDecision: true`）… 或「自动迭代 3 个版本」）
+      const n2 = src.match(/\biterations\s*[:：]\s*(\d+)/i)
+      const ni = n2 && clamp(parseInt(n2[1], 10))
+      if (!ni) {
+        const mC = src.match(/(?:自动迭代|自动演进|迭代)\s*[:：]?\s*(\d{1,2})\s*(?:个|次|轮)?版本/)
+        if (mC) { const n3 = clamp(parseInt(mC[1], 10)); if (n3) decl.iterations = n3 }
+      } else decl.iterations = ni
+      const ma = src.match(/autoDecision\s*[:：]\s*(true|false)/i)
+      if (ma) decl.autoDecision = ma[1].toLowerCase() === 'true'
+      const mf = src.match(/finalAcceptance\s*[:：]\s*["'“”‘’]([^"'“”‘’]+)["'“”‘’]/)
+      if (mf) decl.finalAcceptance = mf[1]
       return decl
     }
 
@@ -1167,7 +1193,17 @@ export function apply(ctx) {
           }
         }
       }
-      return rawSteps.map((s, i) => normalizeStep(s, i))
+      // 按 id（或 title）去重，防止同一份 Step List 被重复解析导致步骤翻倍。
+      const seenStep = new Set()
+      const uniqueRawSteps = []
+      for (const s of rawSteps) {
+        const key = String(s && (s.id != null ? s.id : s.title || ''))
+        if (!seenStep.has(key)) {
+          seenStep.add(key)
+          uniqueRawSteps.push(s)
+        }
+      }
+      return uniqueRawSteps.map((s, i) => normalizeStep(s, i))
     }
 
     // v1.4: extract a planning payload (phase/context_requests) from external AI text.
@@ -1331,11 +1367,21 @@ export function apply(ctx) {
         handoffText: null
       }
     }
-    return { actions, needsAgent, steps: extractSteps(text) }
+    // 去重：相同 type+summary+reason 的重复动作只保留第一条，避免重复 wake_agent/plan。
+      const seenAction = new Set()
+      const uniqueActions = []
+      for (const a of actions) {
+        const key = `${a.type}|${a.summary}|${a.reason || ''}`
+        if (!seenAction.has(key)) {
+          seenAction.add(key)
+          uniqueActions.push(a)
+        }
+      }
+      return { actions: uniqueActions, needsAgent, steps: extractSteps(text) }
   }
 
   // ---------- record persistence ----------
-  async function saveRecord({ base, safePolicy, prompt, answer, channel, actions, results, selectedIndices, status, stamp, steps, intent }) {
+  async function saveRecord({ base, safePolicy, prompt, answer, channel, providerLabel, fallbackReason, requestProvider, actions, results, selectedIndices, status, stamp, steps, intent }) {
     const stampFinal = stamp || new Date().toISOString().replace(/[:.]/g, '-').replace('T', '_').slice(0, 19)
     const id = `expr-${stampFinal}`
     const relPath = `${EXPERIMENTS_DIR}/dsh-web-relay-${stampFinal}.md`
@@ -1350,6 +1396,9 @@ export function apply(ctx) {
       `id: ${id}`,
       `intent: ${intentFinal}`,
       `channel: ${channel}`,
+      `requestProvider: ${requestProvider || channel}`,
+      `providerLabel: ${providerLabel || channel}`,
+      `fallbackReason: ${fallbackReason || '(无)'}`,
       `status: ${status}`,
       `created: ${new Date().toISOString()}`,
       '---',
@@ -1512,7 +1561,9 @@ export function apply(ctx) {
   }
 
   async function wakeMainAgent({ sessionId, handoffText }) {
-    if (!apiProxy || !sessionId || !handoffText) return { agentWoken: false, reason: 'apiProxy 或 sessionId 不可用' }
+    if (!apiProxy) return { agentWoken: false, reason: 'apiProxy 不可用' }
+  if (!sessionId) return { agentWoken: false, reason: 'sessionId 缺失（面板未拿到当前主会话 ID）' }
+  if (!handoffText) return { agentWoken: false, reason: 'handoffText 缺失' }
     try {
       const resp = await apiProxy.sessions.prompt({
         rpcId: randomUUID(),
@@ -1623,6 +1674,8 @@ export function apply(ctx) {
     if (!provider) return json(res, 400, { ok: false, error: 'missing provider' })
 
     let providerLabel = provider
+    const requestProvider = provider // v3.3.2 审计：用户在面板选择的原始通道（gemini-free / web-gemini / claude / manual）
+    let fallbackReason = null // v3.3.2 审计：/ask 降级原因（镜像 auto-review 的 fallbackReason；成功直连为 null）
     let askChannel = provider === 'gemini-free' ? 'gemini-free' : 'manual'   // v1.9：dialog 降级时标记 dialog-fallback
     let answer = ''
 
@@ -1649,18 +1702,22 @@ export function apply(ctx) {
           r = await callGemini(guidedPrompt)
           if (!r.ok) {
             // v1.9 web-gemini：Gemini API 429/失败 → 网页版通道（第一降级节点）
+            fallbackReason = `Gemini API 调用失败（${r.error}）`
             const w = await webGeminiAsk(guidedPrompt)
             if (w.ok) { r = w; degraded = true; providerLabel = 'Gemini 网页版（web-gemini 降级）' }
             else {
+              fallbackReason = `${fallbackReason}；web-gemini（${w.error}）`
               const d = await callDialogModel(guidedPrompt)
               if (d.ok) { r = d; degraded = true; providerLabel = '对话模型（降级）' }
               else r = { ok: false, error: `Gemini 调用失败（${r.error}）；web-gemini（${w.error}）；对话模型降级亦失败（${d.error}）` }
             }
           }
         } else {
+          fallbackReason = 'GEMINI_API_KEY 未配置'
           const w = await webGeminiAsk(guidedPrompt)
           if (w.ok) { r = w; degraded = true; providerLabel = 'Gemini 网页版（web-gemini 降级）' }
           else {
+            fallbackReason = `GEMINI_API_KEY 未配置；web-gemini（${w.error}）`
             const d = await callDialogModel(guidedPrompt)
             if (d.ok) { r = d; degraded = true; providerLabel = '对话模型（降级）' }
           }
@@ -1686,6 +1743,7 @@ export function apply(ctx) {
         let r = await webGeminiAsk(guidedPrompt)
         let degraded = false
         if (!r.ok) {
+          fallbackReason = `web-gemini（${r.error}）`
           const d = await callDialogModel(guidedPrompt)
           if (d.ok) { r = d; degraded = true; providerLabel = '对话模型（降级）' }
           else r = { ok: false, error: `web-gemini（${r.error}）；对话模型降级亦失败（${d.error}）` }
@@ -1739,6 +1797,7 @@ export function apply(ctx) {
           }
           if (!r.ok) {
             // 降级链：Claude 失败 → 内部对话模型 → 报错（pause）
+            fallbackReason = `Claude 调用失败（${r.error}）`
             const d = await callDialogModel(guidedPrompt)
             if (d.ok) { r = d; degraded = true }
             else r = { ok: false, error: `Claude 调用失败（${r.error}）；对话模型降级亦失败（${d.error}）` }
@@ -1760,6 +1819,7 @@ export function apply(ctx) {
       const safePolicy = safePolicyFor(base)
       const { id, relPath, fileTarget } = await saveRecord({
         base, safePolicy, prompt, answer, channel: askChannel,
+        providerLabel, fallbackReason, requestProvider,
         actions: [], results: [], selectedIndices: [], status: 'pending', intent: payload && payload.intent
       })
       // v0.5: seed the three-party trace (用户 prompt → 外部AI answer).
@@ -1842,6 +1902,7 @@ export function apply(ctx) {
             agentWoken = wake.agentWoken
             wakeReason = wake.reason
           }
+            if (!sessionId && !wakeReason) wakeReason = 'sessionId 缺失（面板未拿到当前主会话 ID）'
           await appendTrace({ base, safePolicy, exprId: id, entries: [traceEntry('mainagent', handoffText)] }).catch(() => {})
         }
 
@@ -1849,6 +1910,10 @@ export function apply(ctx) {
           ok: true,
           answer,
           savedPath: fileTarget?.displayPath || relPath,
+          providerLabel,
+          channel: askChannel,
+          fallbackReason,
+          degraded: !!fallbackReason,
           id,
           agentWoken,
           wakeReason,
