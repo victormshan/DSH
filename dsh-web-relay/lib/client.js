@@ -2269,11 +2269,52 @@ window.__ModuleLoader__.load({
                         h('div', { style: { ...hintStyle, marginTop: 2 } }, s.result)
                       )
                     })(),
-                  !expandedTrace[t.id] ? null : (t.entries || []).map((e, i) => h('div', { key: i, style: { marginTop: 6, borderLeft: '2px solid ' + (ROLE_COLOR[e.role] || '#52525b'), paddingLeft: 8 } },
-                    h('div', { style: { fontSize: 11, color: ROLE_COLOR[e.role] || '#a1a1aa' } },
-                      (T.roleLabel[e.role] || e.role) + ' · ' + String(e.at || '').replace('T', ' ').replace(/\.\d+Z$/, 'Z')),
-                    h('div', { style: { ...preStyle, marginTop: 2, maxHeight: 140, fontSize: 12 } }, e.text || '(空)')
-                  )),
+                  !expandedTrace[t.id] ? null : (() => {
+                    // v3.4.0 V2 Step1: AutoIteration 版本分组（迭代: Vn/N、【Vn 标记）
+                    const entries = t.entries || []
+                    const groups = []
+                    let cur = { version: null, total: null, items: [] }
+                    const pushCur = () => { if (cur.items.length) groups.push(cur) }
+                    for (const e of entries) {
+                      const vm = String(e.text || '').match(/(?:迭代[:：]?\s*)?V(\d+)\/(\d+)|【V(\d+)|(?:^|\s)V(\d+)\s*[-—:：]?\s*(?:版间门|完成|评审|restructure|收口)/)
+                      const v = vm ? (vm[1] || vm[3] || vm[4]) : null
+                      if (v && cur.version !== v) { pushCur(); cur = { version: v, total: (vm && vm[2]) || null, items: [] } }
+                      cur.items.push(e)
+                    }
+                    pushCur()
+                    // reviewedBy 来源识别（优先级：显式 reviewedBy → external/dialog/manual 强信号 → mainagent）
+                    const findRb = (text) => {
+                      const t2 = String(text || '')
+                      const m = t2.match(/reviewedBy[:：]?\s*(\w+)/i)
+                      if (m) {
+                        const r = m[1].toLowerCase()
+                        if (r === 'external' || r === 'dialog' || r === 'manual' || r === 'mainagent') return r
+                      }
+                      if (/外部 ?AI|external/i.test(t2)) return 'external'
+                      if (/对话模型|dialog|兜底/i.test(t2)) return 'dialog'
+                      if (/manual ?审核|手动审核|用户手动/i.test(t2)) return 'manual'
+                      if (/mainagent|主 ?agent 代审|自动豁免/i.test(t2)) return 'mainagent'
+                      return null
+                    }
+                    const rbColor = (rb) => rb === 'external' ? '#93c5fd' : rb === 'dialog' ? '#a78bfa' : rb === 'mainagent' ? '#4ade80' : '#fbbf24'
+                    return h('div', {}, groups.map((g, gi) => h('div', { key: 'g' + gi, style: { marginTop: 6, border: '1px dashed ' + (g.version ? 'rgba(147,197,253,.45)' : '#27272a'), borderRadius: 6, padding: '4px 8px' } },
+                      h('div', { style: { display: 'flex', alignItems: 'center', gap: 6 } },
+                        g.version && h('span', { style: { fontSize: 11, fontWeight: 700, color: '#c084fc', border: '1px solid rgba(167,139,250,.5)', borderRadius: 4, padding: '0 6px' } }, 'V' + g.version + (g.total ? '/' + g.total : '')),
+                        !g.version && h('span', { style: { fontSize: 11, fontWeight: 600, color: '#71717a' } }, '总览'),
+                        h('span', { style: { fontSize: 10, color: '#52525b' } }, g.items.length + ' 条')
+                      ),
+                      g.items.map((e, i) => {
+                        const rb = findRb(e.text)
+                        return h('div', { key: i, style: { marginTop: 4, borderLeft: '2px solid ' + (ROLE_COLOR[e.role] || '#52525b'), paddingLeft: 8 } },
+                          h('div', { style: { fontSize: 11, color: ROLE_COLOR[e.role] || '#a1a1aa', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' } },
+                            h('span', {}, (T.roleLabel[e.role] || e.role) + ' · ' + String(e.at || '').replace('T', ' ').replace(/\.\d+Z$/, 'Z')),
+                            rb && h('span', { style: { fontSize: 10, fontWeight: 700, color: rbColor(rb), border: '1px solid ' + rbColor(rb) + '66', borderRadius: 4, padding: '0 5px' } }, 'reviewedBy: ' + rb)
+                          ),
+                          h('div', { style: { ...preStyle, marginTop: 2, maxHeight: 140, fontSize: 12 } }, e.text || '(空)')
+                        )
+                      })
+                    )))
+                  })(),
                   expandedTrace[t.id] && traceRecord[t.id] && h('div', { style: { ...preStyle, marginTop: 6, maxHeight: 220, fontSize: 12 } }, traceRecord[t.id])
                 ))
         ),
