@@ -1445,9 +1445,9 @@ export function apply(ctx) {
         const target = await stepStateTarget(base, exprId)
         const text = await fs.readText(target)
         const data = JSON.parse(text)
-        if (data && Array.isArray(data.steps)) return { exprId, currentStep: data.currentStep || null, status: data.status || 'open', phase: data.phase || (data.steps.length ? 'executing' : 'planning'), architectNotes: data.architectNotes || null, contextRequests: Array.isArray(data.contextRequests) ? data.contextRequests : [], steps: data.steps, updatedAt: data.updatedAt, autoReview: data.autoReview === true, stopReason: data.stopReason || null, stoppedAt: data.stoppedAt || null, finalized: data.finalized === true, finalizedAt: data.finalizedAt || null, finalSummary: data.finalSummary || null, protocolVersion: data.protocolVersion || 'v1.5', activeSteps: Array.isArray(data.activeSteps) ? data.activeSteps : [], iterations: data.iterations || 1, currentIteration: data.currentIteration || 1, finalAcceptance: data.finalAcceptance || null, autoDecision: data.autoDecision === true, rejectStreak: data.rejectStreak || 0 }
+        if (data && Array.isArray(data.steps)) return { exprId, currentStep: data.currentStep || null, status: data.status || 'open', phase: data.phase || (data.steps.length ? 'executing' : 'planning'), architectNotes: data.architectNotes || null, contextRequests: Array.isArray(data.contextRequests) ? data.contextRequests : [], steps: data.steps, updatedAt: data.updatedAt, autoReview: data.autoReview === true, stopReason: data.stopReason || null, stoppedAt: data.stoppedAt || null, finalized: data.finalized === true, finalizedAt: data.finalizedAt || null, finalSummary: data.finalSummary || null, protocolVersion: data.protocolVersion || 'v1.5', activeSteps: Array.isArray(data.activeSteps) ? data.activeSteps : [], iterations: data.iterations || 1, currentIteration: data.currentIteration || 1, finalAcceptance: data.finalAcceptance || null, autoDecision: data.autoDecision === true, rejectStreak: data.rejectStreak || 0, incrementalStreak: data.incrementalStreak || 0 }
       } catch (err) { /* no state yet */ }
-      return { exprId, steps: [], currentStep: null, status: 'open', phase: 'planning', architectNotes: null, contextRequests: [], autoReview: false, stopReason: null, stoppedAt: null, finalized: false, finalizedAt: null, finalSummary: null, protocolVersion: 'v1.5', activeSteps: [], iterations: 1, currentIteration: 1, finalAcceptance: null, autoDecision: false, rejectStreak: 0 }
+      return { exprId, steps: [], currentStep: null, status: 'open', phase: 'planning', architectNotes: null, contextRequests: [], autoReview: false, stopReason: null, stoppedAt: null, finalized: false, finalizedAt: null, finalSummary: null, protocolVersion: 'v1.5', activeSteps: [], iterations: 1, currentIteration: 1, finalAcceptance: null, autoDecision: false, rejectStreak: 0, incrementalStreak: 0 }
     }
 
     async function writeStepState(base, exprId, state, safePolicy) {
@@ -1474,6 +1474,8 @@ export function apply(ctx) {
           finalAcceptance: state.finalAcceptance || null,
           autoDecision: state.autoDecision === true,
           rejectStreak: state.rejectStreak || 0,
+          // P3-fix(v3.5.0): 突破度 streak 必须落盘（否则跨 restructure 不累积、门禁永不触发）
+          incrementalStreak: state.incrementalStreak || 0,
         updatedAt: new Date().toISOString()
       }
       await fs.writeText(target, JSON.stringify(payload, null, 2), undefined, undefined, safePolicy)

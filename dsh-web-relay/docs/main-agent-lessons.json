@@ -2,12 +2,12 @@
   "meta": {
     "schemaVersion": "0.1",
     "title": "dsh-web-relay 主 agent 语境能力 lesson 库（机器可读）",
-    "updatedAt": "2026-09-04T00:00:00.000Z",
+    "updatedAt": "2026-09-04T15:20:00.000Z",
     "carrierOf": "docs/main-agent-lesson-schema-v0.1.md",
     "statusConvention": "proposed（主 agent 产出）→ approved / in-runbook（用户或外部 AI 确认，记 confirmedBy/confirmedAt）；in-runbook=要点已并入 main-agent-runbook 正文；superseded=内容已并入他条（扩展值，机器消费时应跳过）",
     "confirmedAt": "2026-09-04T13:14:35.897Z",
     "confirmedBy": "user（主对话确认：同意三态分类建议）",
-    "confirmationNote": "2026-09-04：用户\"按推荐执行\"——追加 Stage B 语境能力 C-a~C-g（L-2026-0904-018..024）为 proposed，待逐条确认转 approved。"
+    "confirmationNote": "2026-09-04：用户确认 017-024 转 approved（confirmedBy=user 2026-09-04T15:20:00.000Z）。"
   },
   "lessons": [
     {
@@ -295,11 +295,11 @@
       "rationale": "v1.8→v1.9 考古漏 v3.0~v3.2 三个机制（expr-02-05-00 从未深读、影子沙盒被降格为 B10 证据、Swarm/突破度未登记）；根因 R1-R6（本体缺机制层/漏斗缺功能向关键词/漏主会话轨迹数据源/提炼偏 process/收口缺覆盖度自检/时间窗按协议字面收窄）",
       "evidence": "docs/v3-roadmap-context-2026-08-28.md；expr-2026-08-28_01-29-26、expr-2026-08-28_02-05-00、expr-2026-08-29_00-00-00；git tag v3.0.0~v3.4.0",
       "confidence": "high",
-      "status": "proposed",
+      "status": "approved",
       "suggested": "approved",
       "recordedAt": "2026-09-04T13:14:35.897Z",
-      "confirmedBy": null,
-      "confirmedAt": null
+      "confirmedBy": "user",
+      "confirmedAt": "2026-09-04T15:20:00.000Z"
     },
     {
       "id": "L-2026-0904-018",
@@ -311,11 +311,11 @@
       "rationale": "8/25 v0.9.0 三路、v1.0.0 多路子代理并行实测成功；8/28 讨论确认代码场景串行为主（物理 git 冲突+隐式依赖）",
       "evidence": "session-a0a01dfa [U 08-25 05:42~05:54]；[U 08-28 01:35]",
       "confidence": "high",
-      "status": "proposed",
+      "status": "approved",
       "suggested": "approved",
       "recordedAt": "2026-09-04T00:00:00.000Z",
-      "confirmedBy": null,
-      "confirmedAt": null
+      "confirmedBy": "user",
+      "confirmedAt": "2026-09-04T15:20:00.000Z"
     },
     {
       "id": "L-2026-0904-019",
@@ -327,11 +327,11 @@
       "rationale": "用户采纳外部 AI 规约建议（8/24）；v1.8 子代理明确\"先断言 1.1.0 后动手\"；曾出现 statusHandler 硬编码 1.3.0 漂移与 1.0.1 未入表",
       "evidence": "session-a0a01dfa [U 08-24 23:15]；d925feb1 子代理报告；commit 92b57d6",
       "confidence": "high",
-      "status": "proposed",
+      "status": "approved",
       "suggested": "approved",
       "recordedAt": "2026-09-04T00:00:00.000Z",
-      "confirmedBy": null,
-      "confirmedAt": null
+      "confirmedBy": "user",
+      "confirmedAt": "2026-09-04T15:20:00.000Z"
     },
     {
       "id": "L-2026-0904-020",
@@ -343,11 +343,11 @@
       "rationale": "v0.7.0 曾被\"手工重放旧 Patch\"方式搞乱（8/24 用户带回）；外部 AI 4 建议被用户采纳",
       "evidence": "session-a0a01dfa [U 08-24 23:15/23:40]",
       "confidence": "high",
-      "status": "proposed",
+      "status": "approved",
       "suggested": "approved",
       "recordedAt": "2026-09-04T00:00:00.000Z",
-      "confirmedBy": null,
-      "confirmedAt": null
+      "confirmedBy": "user",
+      "confirmedAt": "2026-09-04T15:20:00.000Z"
     },
     {
       "id": "L-2026-0904-021",
@@ -359,11 +359,11 @@
       "rationale": "626 turns 复盘直接催生 v1.7 alternatives/importance/批量审核；固定成本模型下减 turn 是第一优先级",
       "evidence": "session-a0a01dfa [U 08-25 21:28~22:14]（v1.7 P1-P9）",
       "confidence": "medium",
-      "status": "proposed",
+      "status": "approved",
       "suggested": "approved",
       "recordedAt": "2026-09-04T00:00:00.000Z",
-      "confirmedBy": null,
-      "confirmedAt": null
+      "confirmedBy": "user",
+      "confirmedAt": "2026-09-04T15:20:00.000Z"
     },
     {
       "id": "L-2026-0904-022",
@@ -375,11 +375,11 @@
       "rationale": "expr-…_02-09-32 跨工作区桥接实测（8/25）；多工作区并行时防止写错目录",
       "evidence": "session-a0a01dfa [U 08-25 10:09~10:12]",
       "confidence": "medium",
-      "status": "proposed",
+      "status": "approved",
       "suggested": "approved",
       "recordedAt": "2026-09-04T00:00:00.000Z",
-      "confirmedBy": null,
-      "confirmedAt": null
+      "confirmedBy": "user",
+      "confirmedAt": "2026-09-04T15:20:00.000Z"
     },
     {
       "id": "L-2026-0904-023",
@@ -391,11 +391,11 @@
       "rationale": "8/27-8/28 多次 web-gemini 渠道问题（唤醒缺失/steplist 截断/面板无反应）逐层定位并修复（v2.1.0 content 双信号防截断等）",
       "evidence": "session-a0a01dfa [U 08-27 22:31~23:26]；commit 2b9d23a",
       "confidence": "medium",
-      "status": "proposed",
+      "status": "approved",
       "suggested": "approved",
       "recordedAt": "2026-09-04T00:00:00.000Z",
-      "confirmedBy": null,
-      "confirmedAt": null
+      "confirmedBy": "user",
+      "confirmedAt": "2026-09-04T15:20:00.000Z"
     },
     {
       "id": "L-2026-0904-024",
@@ -407,11 +407,11 @@
       "rationale": "statusHandler 曾硬编码 1.3.0 漂移（v2.0.0 修复）；1.0.1 发布未入 README 历史表（子代理提示）",
       "evidence": "commit 92b57d6；session-a0a01dfa [U 08-25 22:20]",
       "confidence": "high",
-      "status": "proposed",
+      "status": "approved",
       "suggested": "approved",
       "recordedAt": "2026-09-04T00:00:00.000Z",
-      "confirmedBy": null,
-      "confirmedAt": null
+      "confirmedBy": "user",
+      "confirmedAt": "2026-09-04T15:20:00.000Z"
     }
   ]
 }

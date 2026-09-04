@@ -86,7 +86,7 @@
 
 ## 5. Lesson 条目库（机器载体：`docs/main-agent-lessons.json`）
 
-> 2026-09-04：24 条已按 §2 全字段结构化入库 `docs/main-agent-lessons.json`（16 条已确认 + 017-024 八条 proposed 待确认）。
+> 2026-09-04：24 条已按 §2 全字段结构化入库 `docs/main-agent-lessons.json`（16 条 + 017-024 八条均已被用户确认 approved；无待确认项）。
 > 本表为人类可读目录；**状态以 json 为准**。
 > 状态约定：`in-runbook`（要点已并入 runbook 正文）/ `approved`（用户或外部 AI 确认）/ `superseded`（已并入他条，机器消费跳过）/ `proposed`（主 agent 产出待确认）；均记 `confirmedBy`/`confirmedAt`。
 
@@ -108,19 +108,19 @@
 | L-2026-0903-014 | artifacts 实挂载防熔断（notes 不算产物） | approved（crossRef 010） |
 | L-2026-0903-015 | 发布纪律：代号/tag/semver 对齐 | approved |
 | L-2026-0903-016 | restructure 后审核上下文同步 | approved |
-| L-2026-0904-017 | 能力考古须三源交叉 + tag 覆盖度自检（防机制层漏登记，本次 R1-R6 复盘） | proposed（待确认） |
-| L-2026-0904-018 | 文件解耦多子代理并行 + 主 agent 统一验收（代码同文件回串行） | proposed（待确认） |
-| L-2026-0904-019 | 版本断言：改前先核对 package.json/git HEAD，不符即停 | proposed（待确认） |
-| L-2026-0904-020 | git 原子交付：里程碑 tag/commit，回退走 checkout/reset 禁重放 Edit | proposed（待确认） |
-| L-2026-0904-021 | 实测数据驱动协议演进（626 turns 复盘 → alternatives/importance） | proposed（待确认） |
-| L-2026-0904-022 | 跨工作区桥接：workspacePath 注入优先于默认 cwd | proposed（待确认） |
-| L-2026-0904-023 | web-gemini 渠道问题分层排查（扩展↔bridge↔解析） | proposed（待确认） |
-| L-2026-0904-024 | 版本号多源一致性（package/README/说明书/statusHandler） | proposed（待确认） |
+| L-2026-0904-017 | 能力考古须三源交叉 + tag 覆盖度自检（防机制层漏登记，本次 R1-R6 复盘） | approved（2026-09-04 用户确认） |
+| L-2026-0904-018 | 文件解耦多子代理并行 + 主 agent 统一验收（代码同文件回串行） | approved（2026-09-04 用户确认） |
+| L-2026-0904-019 | 版本断言：改前先核对 package.json/git HEAD，不符即停 | approved（2026-09-04 用户确认） |
+| L-2026-0904-020 | git 原子交付：里程碑 tag/commit，回退走 checkout/reset 禁重放 Edit | approved（2026-09-04 用户确认） |
+| L-2026-0904-021 | 实测数据驱动协议演进（626 turns 复盘 → alternatives/importance） | approved（2026-09-04 用户确认） |
+| L-2026-0904-022 | 跨工作区桥接：workspacePath 注入优先于默认 cwd | approved（2026-09-04 用户确认） |
+| L-2026-0904-023 | web-gemini 渠道问题分层排查（扩展↔bridge↔解析） | approved（2026-09-04 用户确认） |
+| L-2026-0904-024 | 版本号多源一致性（package/README/说明书/statusHandler） | approved（2026-09-04 用户确认） |
 
 > **已确认（2026-09-04 13:14 UTC，用户）**：001-005→in-runbook；007→并入 002（superseded，证据并入 002）；011→并入 003（superseded，证据并入 003）；006/008/009/010/012/013/014/015/016→approved。见 §5.1。
 
 ### 5.1 确认记录
 
 - **2026-09-04 13:14 UTC（confirmedBy=user，主对话）**：001-005 → `in-runbook`；006/008/009/010/012/013/014/015/016 → `approved`；007 → 并入 002、011 → 并入 003（均 `superseded`，supersededBy 已写，evidence 已并入目标条目）。lessons.json 已同步 `status`/`confirmedBy`/`confirmedAt`。
-- **2026-09-04（proposed，待确认）**：L-2026-0904-017（考古方法修正 lesson）——阶段 B 二次考古产出《能力持久化待补清单》后一并确认。
+- **2026-09-04 15:20 UTC（confirmedBy=user，主对话）**：L-2026-0904-017..024 八条 → `approved`。lessons.json 已同步 `status`/`confirmedBy`/`confirmedAt`；库内无剩余 proposed。
 - **2026-09-04（proposed，待确认）**：L-2026-0904-018..024（Stage B 语境能力 C-a~C-g，用户"按推荐执行"登记为 proposed，待逐条确认转 approved）。
