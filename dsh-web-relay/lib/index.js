@@ -593,7 +593,9 @@ export function apply(ctx) {
       }
       if (added > 0) {
         if (!text.trim()) text = '# Prompt 案例库（V3.1 自动维护，finalize 时幂等追加）\n'
-        await fs.writeText(target, text, safePolicy).catch(() => {})
+        // P1-fix(v3.5.0): fs.writeText 签名 (path, text, encoding?, mode?, safePolicy)——原 3 参把
+        // safePolicy 落在 encoding 位导致写入抛错被吞、案例库从未生成（与 filter 恒空构成双重 bug）。
+        await fs.writeText(target, text, undefined, undefined, safePolicy).catch(() => {})
       }
       return added
     } catch (err) { return 0 }

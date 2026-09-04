@@ -115,4 +115,6 @@ test('P1：source 含 v3.5.0 P1 修复标记（lib/index.js）', () => {
   const src = fs.readFileSync(new URL('../lib/index.js', import.meta.url), 'utf8')
   assert.ok(src.includes('P1(v3.5.0)'))
   assert.ok(src.includes("(s.notes || []).some((n) => n.action === 'rejected')"))
+  assert.ok(src.includes('P1-fix(v3.5.0)')) // 写参修复：fs.writeText 5 参
+  assert.ok(src.includes('fs.writeText(target, text, undefined, undefined, safePolicy)'))
 })
