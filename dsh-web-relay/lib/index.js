@@ -20,6 +20,7 @@ import path from 'node:path'
 // V3.2: 多角色盲审 Swarm Prompt 模板与共识合成（lib/swarm-prompts.js 纯函数模块）
 import { buildRolePrompt, swarmConsensus, parseRoleReview, swarmEnablePolicy } from './swarm-prompts.js'
 import { auditBreakthrough } from './breakthrough-gate.js'
+import { checkL1Gate, runL2ShadowGate, shouldUseShadow, resolveRepoPath, runShadowGC, executeRollbackBaseline } from './shadow-gate.js'
 
 // v2.4-1: 插件版本（从 package.json 实时读取，避免硬编码漂移——原 statusHandler 曾长期报 1.3.0）
 export const PLUGIN_VERSION = (() => {
@@ -2509,6 +2510,38 @@ export function apply(ctx) {
           if (artifacts !== null) {
             const merged = new Set([...(Array.isArray(step.artifacts) ? step.artifacts : []), ...artifacts])
             step.artifacts = [...merged]
+          }
+          // v3.6.0 Step2（影子沙盒支撑 S8/S9）：L1/L2 门禁——失败拒绝 complete 并回传结构化错误清单
+          const repoRoot = resolveRepoPath(base) || process.env.DSH_RELAY_REPO_PATH || null
+          const gateMode = payload.disableShadow === true || payload.shadowGate === 'off' ? 'off' : (payload.shadowGate === 'on' ? 'on' : 'auto')
+          const shadowFiles = (step.artifacts || []).map((x) => String(x)).filter((a) => /\.(js|mjs|cjs|py|ts)$/i.test(a))
+          const gateLevel = gateMode === 'off'
+            ? 'off'
+            : shouldUseShadow({ ...step, breakthrough_type: step.breakthrough_type || payload.breakthrough_type }, {
+                repoPath: repoRoot, shadowGate: gateMode, needsTests: payload.needsShadowTests === true
+              })
+          if (gateLevel === 'l1' && shadowFiles.length > 0) {
+            const l1 = checkL1Gate({ cwd: repoRoot || base, files: shadowFiles })
+            if (!l1.ok) {
+              return json(res, 400, {
+                ok: false, blocked: 'shadow-l1',
+                error: `影子门禁未通过（L1 语法预检）：${l1.errors.map((e) => `${e.file} → ${String(e.error).slice(0, 120)}`).join('；')}`,
+                shadow: { level: 'l1', errors: l1.errors }
+              })
+            }
+            step.notes.push({ role: 'mainagent', at: new Date().toISOString(), action: 'shadow-l1', text: `L1 语法预检通过：${shadowFiles.join(', ')}` })
+          } else if (gateLevel === 'l2' && shadowFiles.length > 0) {
+            const l2 = runL2ShadowGate({ repoPath: repoRoot, baseCommit: state.iterationBaseCommit || 'HEAD', changedFiles: shadowFiles, cwd: repoRoot })
+            if (!l2.ok) {
+              return json(res, 400, {
+                ok: false, blocked: 'shadow-l2',
+                error: `影子门禁未通过（L2 worktree 校验）：${(l2.errors || []).map((e) => `${e.file} → ${String(e.error).slice(0, 120)}`).join('；') || l2.error || l2.reason || 'unknown'}`,
+                shadow: { level: 'l2', errors: l2.errors, reason: l2.error || l2.reason }
+              })
+            }
+            step.notes.push({ role: 'mainagent', at: new Date().toISOString(), action: 'shadow-l2', text: `L2 影子校验通过：${shadowFiles.join(', ')}` })
+          } else if (gateLevel === 'degraded') {
+            step.notes.push({ role: 'mainagent', at: new Date().toISOString(), action: 'shadow-degraded', text: '非 git 工作区：跳过 L2 仅 L1/增量回滚降级（v3.6.0 S9）' })
           }
           // v1.8 混合模式：review:false 硬开关无条件绕过；importance=low 且未显式指定 review → 主 agent 自动豁免
           autoPass = step.review === false || (step.importance === 'low' && !step.reviewSpecified)

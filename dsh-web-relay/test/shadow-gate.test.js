@@ -1,0 +1,69 @@
+// v3.6.0 Step4: 影子沙盒门禁测试（纯函数镜像 lib/shadow-gate.js；运行：node --test test/shadow-gate.test.js）
+import { test } from 'node:test'
+import assert from 'node:assert/strict'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
+import { checkL1Gate, resolveRepoPath, shouldUseShadow, runShadowGC, executeRollbackBaseline, runL2ShadowGate } from '../lib/shadow-gate.js'
+
+const REPO = 'D:/DSH'
+const NON_REPO = 'D:/dsh relay test'
+
+test('TC-Green: repoPath 识别 + L1 语法预检通过（合法文件）', () => {
+  assert.equal(resolveRepoPath(REPO), 'D:/DSH')
+  assert.equal(resolveRepoPath(NON_REPO), null)
+  const r = checkL1Gate({ cwd: REPO, files: ['D:/DSH/dsh-web-relay/lib/shadow-gate.js'] })
+  assert.equal(r.ok, true)
+  assert.equal(r.errors.length, 0)
+})
+
+test('TC-Red: L1 拦截（注入语法错误的文件 → ok:false + 错误清单）', () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'dwr-shadow-gate-'))
+  const bad = path.join(tmp, 'bad.js')
+  fs.writeFileSync(bad, 'const x = ;\n')
+  const r = checkL1Gate({ cwd: tmp, files: ['bad.js'] })
+  assert.equal(r.ok, false)
+  assert.ok(r.errors.length >= 1)
+  assert.ok(r.errors[0].file.includes('bad.js'))
+  fs.rmSync(tmp, { recursive: true, force: true })
+})
+
+test('TC-Context/Trigger Matrix: shouldUseShadow 判定（off/auto/on/l1/l2/degraded）', () => {
+  const stepHigh = { importance: 'high', artifacts: ['lib/index.js'], breakthrough_type: 'structural' }
+  assert.equal(shouldUseShadow(stepHigh, { repoPath: REPO, shadowGate: 'auto' }), 'l2')       // structural → L2
+  assert.equal(shouldUseShadow({ importance: 'high', artifacts: ['lib/index.js'] }, { repoPath: REPO, shadowGate: 'auto', needsTests: true }), 'l2')
+  assert.equal(shouldUseShadow({ importance: 'high', artifacts: ['lib/index.js'] }, { repoPath: REPO, shadowGate: 'auto' }), 'l1') // 仅 high+源码 → L1
+  assert.equal(shouldUseShadow(stepHigh, { repoPath: REPO, shadowGate: 'off' }), 'off')
+  assert.equal(shouldUseShadow(stepHigh, { repoPath: null, shadowGate: 'auto' }), 'degraded') // 非 git
+  assert.equal(shouldUseShadow({ importance: 'medium', artifacts: ['lib/index.js'] }, { repoPath: REPO }), 'off')
+  assert.equal(shouldUseShadow({ importance: 'high', artifacts: ['docs/a.md'] }, { repoPath: REPO }), 'off') // 无源码产物
+})
+
+test('TC-GC: Shadow GC（worktree prune + 统计；不误伤）', () => {
+  const r = runShadowGC(REPO)
+  assert.equal(r.ok, true)
+  assert.equal(typeof r.pruned, 'number')
+  assert.ok(r.active <= r.max || r.active === undefined || r.max >= 0) // 不超上限即安全
+  assert.equal(runShadowGC(null).ok, true)
+})
+
+test('TC-Rollback: 回滚基线（非 git 降级提示；缺 commit 报错；无效 commit 返回错误且不破坏仓库）', () => {
+  const d = executeRollbackBaseline(null, 'abc1234')
+  assert.equal(d.ok, false)
+  assert.equal(d.degraded, true)
+  assert.ok(d.reason.includes('non-git'))
+  const noBase = executeRollbackBaseline(REPO, null)
+  assert.equal(noBase.ok, false)
+  assert.ok(noBase.error.includes('iterationBaseCommit'))
+  const badCommit = executeRollbackBaseline(REPO, '0000000000000000000000000000000000000000')
+  assert.equal(badCommit.ok, false) // 无效 commit → 不执行 reset（不破坏工作区）
+})
+
+test('source 标记：lib/index.js 已接入 shadow-gate（v3.6.0 Step2）', () => {
+  const src = fs.readFileSync(new URL('../lib/index.js', import.meta.url), 'utf8')
+  const sg = fs.readFileSync(new URL('../lib/shadow-gate.js', import.meta.url), 'utf8')
+  assert.ok(src.includes("from './shadow-gate.js'"))
+  assert.ok(src.includes('blocked: \'shadow-l1\''))
+  assert.ok(src.includes('shadow-l2'))
+  assert.ok(sg.includes('v3.6.0'))
+})

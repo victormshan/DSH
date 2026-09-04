@@ -67,3 +67,37 @@ risk 步 complete
 2. 触发默认：high+源码自动 on vs 需面板显式开
 3. preflight 失败是否阻断 complete（建议阻断）还是仅警告
 4. 非 git 工作区降级为快照回滚（建议）还是禁用影子
+
+## 9. 外部 AI 评审（Gemini Free API，2026-09-04；记录 expr-2026-09-04_17-41-14，零降级）
+
+> 征询方式：经插件 /ask（provider=gemini-free，requestProvider=gemini-free / providerLabel=Gemini Free API / fallbackReason=(无)）——本设计文档 v0.1 摘要 + 4 决策点交外部 AI 架构师评审。
+
+### 9.1 总体评审与最大风险（外部 AI 原文要点）
+- 可行性：**8.5/10**——/shadow 底座成熟，作为 v1.9 高风险步的 Engine Pre-flight Hook 闭环清晰。
+- 三大架构风险：
+  1. **影子环境依赖断裂**：git worktree 只 checkout 已跟踪文件，不带 .env/node_modules/未提交配置 → 影子内直接跑 node --check/测试易"假阴性误杀"。
+  2. **Worktree 泄漏与并发死锁**：preflight 崩溃/超时/未捕获异常会残留 worktree；SHADOW_MAX=2 时泄漏 2 次即永久死锁。
+  3. **5s 超时对测试过紧**：Node 进程启动/框架加载/集成测试易超时误剔除。
+
+### 9.2 决策点外部推荐
+- A 排期：**赞同 v3.6.0**（v3.5.0 P1-P4 刚收尾，需生产积累；预留时间处理 node_modules 挂载/GC/E2E）。
+- B 触发：shadowGate:auto 默认生效，但**细化判定**（high 且 Structural/Paradigm 或后端核心逻辑/敏感模块，避免"改 UI 样式也建 worktree"的误伤）+ **面板 Disable Shadow 全局硬开关**。
+- C preflight 失败：**坚决拒绝 complete（blocker）+ 精细化错误清单**（仅警告将失去影子 80% 价值；配合 v1.9 三连打回熔断保证主基线纯洁）。
+- D 非 git：**反对物理磁盘快照**（node_modules/产物大目录 IO/磁盘不可控）→ 建议**禁用 shadow + 修改前保存增量内存/反向 patch 可回滚**（轻量安全）。
+
+### 9.3 测试与先导案例（外部 AI 建议）
+- 最小测试集 5 例：TC-SHADOW-01 Green Path（auto 触发全绿→complete+destroy）；02 Red Path（注入语法错/单测失败→拒绝 complete、主区零改动、影子清理）；03 Orphan GC（异常中断→启动/定时器静默清理残留 worktree 释放锁）；04 Context Mount（影子内测试可读到根 node_modules，软链/环境变量）；05 Iteration Rollback Gate（熔断/打回时 iterationBaseCommit git reset 回滚）。
+- 先导案例：以"重构 /shadow 端点锁控制与 GC 回收模块"自身作 pilot（源码大改 + 全流程自检）。
+
+### 9.4 外部 AI 替代方案（更轻/更稳：L1/L2 分级）
+- **L1 轻量门禁（默认）**：不建 worktree——diff 先载入内存/Staging，当前环境跑 node --check 语法分析（<30-50ms，无泄漏风险）。
+- **L2 重型影子（按需）**：仅当显式 breakthrough_type Structural/Paradigm 或需跑耗时单测时才拉起 worktree；创建时**软链根 node_modules**。
+- 原子回滚：L1/L2 失败 → `git apply --reverse` 或 `git checkout -- .` 恢复主区。
+- 预期：90% high 步在 L1 完成极速校验，仅 ~10% 结构性重构触发 worktree。
+
+### 9.5 采纳修订（本主 agent 建议并入 v0.2 草稿，待用户确认）
+1. 采纳 L1/L2 分级作为主方案（替代"一律 worktree"）；L1=内存/Staging 语法预检，L2=显式 Structural/Paradigm 或需单测时才 worktree，且影子软链 node_modules。
+2. 非 git 降级由"快照回滚"改为"禁用 shadow + 增量内存/反向 patch 可回滚"。
+3. preflight 失败=拒绝 complete（blocker）确认保留；面板加 Disable Shadow 全局开关。
+4. 新增 Shadow GC（孤儿 worktree 清理）与依赖挂载两项到 S9 范围；测试集按 §9.3 5 例并入 shadow-gate.test.js 规划。
+5. 排期维持 **v3.6.0**。

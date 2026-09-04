@@ -200,6 +200,8 @@ window.__ModuleLoader__.load({
         reviewChannelWebGemini: 'web-gemini（网页）',
         swarmLabel: '双角色盲审',
         swarmHint: 'Swarm：Security-Auditor + Refactoring-Architect 双角色盲审（约 2× 审核成本）；importance:high 默认开启，可关闭',
+        shadowOffLabel: '关闭影子门禁',
+        shadowOffHint: 'v3.6.0 影子沙盒支撑：complete 时对 high/源码/重构步做 L1 语法预检（必要时 L2 worktree 校验），失败拒绝 complete；勾选可全局关闭',
         badgeWaitReview: '等待审核',
         badgeExecuting: '主 agent 执行中',
         badgeDone: '已完成',
@@ -360,6 +362,8 @@ window.__ModuleLoader__.load({
         reviewChannelWebGemini: 'web-gemini (web)',
         swarmLabel: 'Swarm dual review',
         swarmHint: 'Swarm: Security-Auditor + Refactoring-Architect dual blind review (~2× review cost); default ON for importance:high',
+        shadowOffLabel: 'Disable shadow gate',
+        shadowOffHint: 'v3.6.0 shadow support: L1 syntax precheck (L2 worktree when needed) on complete for high/source/refactor steps; failure blocks complete; check to disable globally',
         badgeRejected: 'Rejected',
         badgeWaitReview: 'Awaiting review',
         badgeExecuting: 'Main agent running',
@@ -530,6 +534,13 @@ window.__ModuleLoader__.load({
       useEffect(() => {
         try { localStorage.setItem('dsh-web-relay:swarm-on', swarmOn ? '1' : '0') } catch (e) { /* ignore */ }
       }, [swarmOn])
+      // v3.6.0 Step3: 影子沙盒门禁全局开关（默认启用门禁；勾选=关闭，供极端卡流程时）
+      const [shadowOff, setShadowOff] = useState(() => {
+        try { return localStorage.getItem('dsh-web-relay:shadow-off') === '1' } catch (e) { return false }
+      })
+      useEffect(() => {
+        try { localStorage.setItem('dsh-web-relay:shadow-off', shadowOff ? '1' : '0') } catch (e) { /* ignore */ }
+      }, [shadowOff])
       // v2.5-2 (UI): Trace Replay 还原结果
       const [replayResult, setReplayResult] = useState(null)
       const [replayStepId, setReplayStepId] = useState('')   // 独立 Replay 入口选中的步骤 id
@@ -1068,7 +1079,7 @@ window.__ModuleLoader__.load({
             const resp = await fetch('/dsh-web-relay/steps/auto-review', {
               method: 'POST',
               headers: { 'content-type': 'application/json' },
-              body: JSON.stringify({ workspacePath, exprId, stepId, sessionId, protocolVersion, enableSwarm: swarmOn, reviewChannel }),
+              body: JSON.stringify({ workspacePath, exprId, stepId, sessionId, protocolVersion, enableSwarm: swarmOn, disableShadow: shadowOff, reviewChannel }),
               signal: controller.signal
             })
             const data = await resp.json().catch(() => ({ ok: false, error: 'bad response' }))
@@ -1120,7 +1131,7 @@ window.__ModuleLoader__.load({
             const resp = await fetch('/dsh-web-relay/steps/auto-review', {
               method: 'POST',
               headers: { 'content-type': 'application/json' },
-              body: JSON.stringify({ workspacePath, exprId, sessionId, protocolVersion, batchStepIds: ids, enableSwarm: swarmOn, reviewChannel }),
+              body: JSON.stringify({ workspacePath, exprId, sessionId, protocolVersion, batchStepIds: ids, enableSwarm: swarmOn, disableShadow: shadowOff, reviewChannel }),
               signal: controller.signal
             })
             const data = await resp.json().catch(() => ({ ok: false, error: 'bad response' }))
@@ -2020,6 +2031,14 @@ window.__ModuleLoader__.load({
                   },
                     h('input', { type: 'checkbox', checked: swarmOn, onChange: (e) => setSwarmOn(e.target.checked), style: { margin: 0, cursor: 'pointer' } }),
                     T.swarmLabel
+                  ),
+                  // v3.6.0 Step3: 影子沙盒门禁全局开关（默认启用；勾选=Disable）
+                  h('label', {
+                    title: T.shadowOffHint,
+                    style: { fontSize: 11, marginLeft: 6, color: '#a1a1aa', display: 'inline-flex', alignItems: 'center', gap: 3, cursor: 'pointer' }
+                  },
+                    h('input', { type: 'checkbox', checked: shadowOff, onChange: (e) => setShadowOff(e.target.checked), style: { margin: 0, cursor: 'pointer' } }),
+                    T.shadowOffLabel
                   ),
                   // v1.8 H: 重构 Step List 入口（展开 textarea 粘贴新 steps JSON 数组）
                   h('button', {
