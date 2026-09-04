@@ -55,4 +55,40 @@ foreach ($f in @('lib\index.js', 'lib\client.js', 'package.json', 'cordis.patch.
     Write-Host "  已部署: $f"
 }
 
+# ---- 复制自动迭代建模 Skill 到 DSH 全局 skills ----
+$SkillSrc = "$RepoRoot\skills\auto-iteration-modeling\SKILL.md"
+$SkillDestRoot = Join-Path $env:USERPROFILE '.dsh\skills\auto-iteration-modeling'
+if (Test-Path $SkillSrc) {
+    $null = New-Item -ItemType Directory -Force -Path $SkillDestRoot
+    Copy-Item $SkillSrc (Join-Path $SkillDestRoot 'SKILL.md') -Force
+    Write-Host "  已部署 Skill: auto-iteration-modeling -> $SkillDestRoot"
+} else {
+    Write-Warning "未找到 Skill 文件: $SkillSrc，跳过 Skill 部署"
+}
+
+# ---- 复制工具排障 Skill 到 DSH 全局 skills ----
+$ToolSkillSrc = "$RepoRoot\skills\agent-tool-troubleshooting\SKILL.md"
+$ToolSkillDestRoot = Join-Path $env:USERPROFILE '.dsh\skills\agent-tool-troubleshooting'
+if (Test-Path $ToolSkillSrc) {
+    $null = New-Item -ItemType Directory -Force -Path $ToolSkillDestRoot
+    Copy-Item $ToolSkillSrc (Join-Path $ToolSkillDestRoot 'SKILL.md') -Force
+    Write-Host "  已部署 Skill: agent-tool-troubleshooting -> $ToolSkillDestRoot"
+} else {
+    Write-Warning "未找到 Skill 文件: $ToolSkillSrc，跳过 Skill 部署"
+}
+
+# ---- 复制 dsh-web-relay 主 agent Skill 到 DSH 全局 skills ----
+$MainSkillSrc = "$RepoRoot\skills\dsh-web-relay-main-agent\SKILL.md"
+$MainSkillDestRoot = Join-Path $env:USERPROFILE '.dsh\skills\dsh-web-relay-main-agent'
+if (Test-Path $MainSkillSrc) {
+    $null = New-Item -ItemType Directory -Force -Path $MainSkillDestRoot
+    Copy-Item $MainSkillSrc (Join-Path $MainSkillDestRoot 'SKILL.md') -Force
+    Write-Host "  已部署 Skill: dsh-web-relay-main-agent -> $MainSkillDestRoot"
+} else {
+    Write-Warning "未找到 Skill 文件: $MainSkillSrc，跳过 Skill 部署"
+}
+
+
+
+
 Write-Host "部署完成（版本 $srcVersion，安装目录 $instVersion → $srcVersion）。请重启 dsh web 使插件生效。"

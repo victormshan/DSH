@@ -18,7 +18,8 @@ import { readFileSync } from 'node:fs'
 import { execSync } from 'node:child_process'
 import path from 'node:path'
 // V3.2: 多角色盲审 Swarm Prompt 模板与共识合成（lib/swarm-prompts.js 纯函数模块）
-import { buildRolePrompt, swarmConsensus, parseRoleReview } from './swarm-prompts.js'
+import { buildRolePrompt, swarmConsensus, parseRoleReview, swarmEnablePolicy } from './swarm-prompts.js'
+import { auditBreakthrough } from './breakthrough-gate.js'
 
 // v2.4-1: 插件版本（从 package.json 实时读取，避免硬编码漂移——原 statusHandler 曾长期报 1.3.0）
 export const PLUGIN_VERSION = (() => {
@@ -566,10 +567,13 @@ export function apply(ctx) {
       .join('\n')
   }
 
-  // 收口时扫描 rejected 步骤 reason 聚类，幂等追加案例库（finalize 调用，后台静默）
+  // 收口时扫描曾 rejected 步骤 reason 聚类，幂等追加案例库（finalize 调用，后台静默）
   async function collectRejectedCases(state, base, safePolicy) {
     try {
-      const rejected = (state.steps || []).filter((s) => s.status === 'rejected')
+      // P1(v3.5.0): 收集"曾被 rejected"的步骤（含 finalize 时已 approved 者），取最近一条
+      // rejected note 聚类入案例库——原实现只收仍处于 rejected 的步骤，而 finalize 前置校验
+      // 要求全部 approved → 案例库恒空、buildCaseBlock 反思闭环从未生效。
+      const rejected = (state.steps || []).filter((s) => (s.notes || []).some((n) => n.action === 'rejected'))
       if (rejected.length === 0) return 0
       const existing = await readCaseLibrary(base)
       const existingKeys = new Set(existing.map((c) => `${c.exprId}:${c.stepId}`))
@@ -1560,6 +1564,21 @@ export function apply(ctx) {
     return { target }
   }
 
+    // ---- 主 agent 装配：新会话被唤起时先读持久化能力文件 ----
+    const MAIN_AGENT_ASSEMBLY = [
+      '',
+      '【主 agent 装配】请先阅读以下持久化能力文件：',
+      '- 执行手册: D:\\DSH\\dsh-web-relay\\docs\\main-agent-runbook-v0.1.md',
+      '- 能力索引: D:\\DSH\\dsh-web-relay\\docs\\capabilities\\registry.yaml',
+      '- 自动迭代建模: D:\\DSH\\dsh-web-relay\\skills\\auto-iteration-modeling\\SKILL.md',
+      '- 工具排障: D:\\DSH\\dsh-web-relay\\skills\\agent-tool-troubleshooting\\SKILL.md',
+      '- 主 agent Skill: D:\\DSH\\dsh-web-relay\\skills\\dsh-web-relay-main-agent\\SKILL.md'
+    ].join('\n')
+    function attachMainAgentAssembly(text) {
+      return String(text || '') + '\n' + MAIN_AGENT_ASSEMBLY
+    }
+
+
   async function wakeMainAgent({ sessionId, handoffText }) {
     if (!apiProxy) return { agentWoken: false, reason: 'apiProxy 不可用' }
   if (!sessionId) return { agentWoken: false, reason: 'sessionId 缺失（面板未拿到当前主会话 ID）' }
@@ -1570,7 +1589,7 @@ export function apply(ctx) {
         payload: {
           sessionId,
           mode: 'queue',
-          content: [{ type: 'text', text: handoffText }]
+          content: [{ type: 'text', text: attachMainAgentAssembly(handoffText) }]
         }
       })
       const accepted = !!(resp && resp.result && resp.result.ok === true)
@@ -2215,7 +2234,10 @@ export function apply(ctx) {
         if (steps && steps.length > 0) {
           // v1.9 AutoIteration：从 prompt/answer 提取迭代声明（iterations/finalAcceptance/autoDecision）
           const ai = extractAutoIterDecl(`${prompt}\n${text}`)
-          try { stepState = await writeStepState(base, id, { exprId: id, steps, currentStep: null, status: 'open', autoReview: payload.autoReview === true, protocolVersion, iterations: ai.iterations, currentIteration: 1, finalAcceptance: ai.finalAcceptance, autoDecision: ai.autoDecision, rejectStreak: 0 }, safePolicy) } catch (err) { stepState = null }
+          // P3(v3.5.0): Architect 突破度门禁（非阻断 warn）——初始计划版本级审计，streak 落盘
+          const btAudit0 = auditBreakthrough(steps, 0)
+          if (btAudit0.warn) console.warn('[dsh-web-relay] ' + btAudit0.warn)
+          try { stepState = await writeStepState(base, id, { exprId: id, steps, currentStep: null, status: 'open', autoReview: payload.autoReview === true, protocolVersion, iterations: ai.iterations, currentIteration: 1, finalAcceptance: ai.finalAcceptance, autoDecision: ai.autoDecision, rejectStreak: 0, incrementalStreak: btAudit0.streak }, safePolicy) } catch (err) { stepState = null }
         }
 
       // v0.5: write the three-party trace (用户 prompt → 外部AI 回答 → 主 agent 唤醒消息).
@@ -2670,7 +2692,14 @@ export function apply(ctx) {
           if (!rr.ok) { const w = await webGeminiAsk(rolePrompt); if (w.ok) rr = w }
           if (!rr.ok) { rr = await callDialogModel(rolePrompt) }
           if (!rr.ok) return { roleId, review: { verdict: 'rejected', findings: ['审核通道不可用'], suggestion: '' } }
-          return { roleId, review: parseRoleReview(rr.text) }
+          const raw = String(rr.text || '')
+          let strict = null
+          try { strict = JSON.parse(raw) } catch (err) { strict = null }
+          // P2(v3.5.0): 严格 JSON 解析失败时 warn（原静默丢数据），随后走 parseRoleReview 宽松兜底
+          if (!strict || !/^(approved|rejected)$/.test(String(strict.verdict || ''))) {
+            console.warn('[dsh-web-relay] Swarm 角色评审 JSON 解析失败，宽松兜底:', roleId, raw.slice(0, 200))
+          }
+          return { roleId, review: parseRoleReview(raw) }
         }
         const swarmResults = await Promise.all([runRole('security'), runRole('refactor')])
         const sec = swarmResults.find((x) => x.roleId === 'security') || { review: { verdict: 'rejected', findings: [] } }
@@ -2989,7 +3018,7 @@ export function apply(ctx) {
               batchResults.push({ stepId: sid, status: s.status, skipped: true, error: '该步骤正在审核中，请勿重复触发' })
               continue
             }
-            const out = await reviewOneStep(state, s, base, safePolicy, payload.enableSwarm === true, payload.reviewChannel)
+            const out = await reviewOneStep(state, s, base, safePolicy, swarmEnablePolicy({ importance: s.importance, enableSwarm: payload.enableSwarm }).enabled, payload.reviewChannel)
             batchResults.push({
               stepId: sid,
               status: s.status,
@@ -3056,7 +3085,7 @@ export function apply(ctx) {
           return json(res, 200, { ok: true, skipped: true, error: '该步骤正在审核中，请勿重复触发' })
         }
 
-        const out = await reviewOneStep(state, step, base, safePolicy, payload.enableSwarm === true, payload.reviewChannel)
+        const out = await reviewOneStep(state, step, base, safePolicy, swarmEnablePolicy({ importance: step.importance, enableSwarm: payload.enableSwarm }).enabled, payload.reviewChannel)
         if (out.manual) {
           // 降级到手动：前端展开审核框
           return json(res, 200, {
@@ -3244,10 +3273,21 @@ export function apply(ctx) {
           })
         }
 
+        // P3(v3.5.0): Architect 突破度门禁（非阻断 warn）——对本次重构版本解析 breakthrough_type，
+        // 连续 Incremental 超限（≥2）时 console.warn + 响应字段提示；streak 落盘供跨版本延续。
+        const btAudit = auditBreakthrough(normalizedNew, state.incrementalStreak || 0)
+        if (btAudit.warn) console.warn('[dsh-web-relay] ' + btAudit.warn)
+        state.incrementalStreak = btAudit.streak
+
         const written = await writeStepState(base, exprId, state, safePolicy)
         const traceLine = `Step List 已重构（v1.8 restructure）：更新 ${changes.updated.length} 新增 ${changes.added.length} 移除 ${changes.removed.length}；approved 步骤保留。`
         await appendTrace({ base, safePolicy, exprId, entries: [traceEntry('mainagent', traceLine)] }).catch(() => {})
-        return json(res, 200, { ok: true, stepState: written, changes })
+        return json(res, 200, {
+          ok: true,
+          stepState: written,
+          changes,
+          ...(btAudit.warn ? { breakthrough: { warn: btAudit.warn, streak: btAudit.streak } } : {})
+        })
       } catch (err) {
         json(res, 500, { ok: false, error: String(err?.message || err) })
       }

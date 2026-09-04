@@ -4,7 +4,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
-import { SWARM_ROLES, swarmConsensus, parseRoleReview, buildRolePrompt } from '../lib/swarm-prompts.js'
+import { SWARM_ROLES, swarmConsensus, parseRoleReview, buildRolePrompt, swarmEnablePolicy } from '../lib/swarm-prompts.js'
 
 test('SWARM_ROLES：双角色专职视角定义', () => {
   assert.equal(Object.keys(SWARM_ROLES).length, 2)
@@ -70,4 +70,29 @@ test('source 源码含 v3.2 Swarm 标记（lib/index.js + swarm-prompts.js）', 
   assert.ok(sp.includes('swarmConsensus'))
   assert.ok(sp.includes('Security-Auditor'))
   assert.ok(sp.includes('Refactoring-Architect'))
+})
+
+// ---- P2(v3.5.0)：importance:high 默认启用 Swarm（含成本提示）；显式开关优先 ----
+test('P2：high 且未显式指定 → Swarm 默认开并带成本提示', () => {
+  const r = swarmEnablePolicy({ importance: 'high' })
+  assert.equal(r.enabled, true)
+  assert.equal(r.source, 'high-default')
+  assert.ok(r.hint.includes('2×'))
+})
+
+test('P2：medium/low 默认关；显式 true/false 优先于 importance', () => {
+  assert.equal(swarmEnablePolicy({ importance: 'medium' }).enabled, false)
+  assert.equal(swarmEnablePolicy({ importance: 'low' }).enabled, false)
+  assert.equal(swarmEnablePolicy({ importance: 'low', enableSwarm: true }).enabled, true)
+  assert.equal(swarmEnablePolicy({ importance: 'high', enableSwarm: false }).enabled, false)
+  assert.equal(swarmEnablePolicy({ importance: 'high', enableSwarm: false }).source, 'explicit-off')
+})
+
+test('P2：source 含 v3.5.0 Swarm 策略标记（lib/swarm-prompts.js + index.js）', () => {
+  const sp = fs.readFileSync(new URL('../lib/swarm-prompts.js', import.meta.url), 'utf8')
+  const src = fs.readFileSync(new URL('../lib/index.js', import.meta.url), 'utf8')
+  assert.ok(sp.includes('P2(v3.5.0): Swarm 启用策略'))
+  assert.ok(sp.includes('swarmEnablePolicy'))
+  assert.ok(src.includes('swarmEnablePolicy'))
+  assert.ok(src.includes('Swarm 角色评审 JSON 解析失败，宽松兜底'))
 })

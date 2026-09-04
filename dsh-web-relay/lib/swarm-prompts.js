@@ -76,3 +76,13 @@ export function buildRolePrompt(roleId, contextBlock, reviewer) {
     '注意：verdict 必须严格是 approved 或 rejected 二者之一。'
   ].join('\n')
 }
+
+// P2(v3.5.0): Swarm 启用策略——importance:high 默认开（未显式指定时）；显式 enableSwarm=true/false 优先。
+// 返回 { enabled, hint, source }；hint 为成本提示文案（供面板展示）。
+export function swarmEnablePolicy({ importance, enableSwarm } = {}) {
+  const hint = 'Swarm 双角色盲审约 2× 审核成本（Security-Auditor + Refactoring-Architect）'
+  if (enableSwarm === true) return { enabled: true, hint, source: 'explicit-on' }
+  if (enableSwarm === false) return { enabled: false, hint: '', source: 'explicit-off' }
+  if (String(importance) === 'high') return { enabled: true, hint, source: 'high-default' }
+  return { enabled: false, hint: '', source: 'importance-not-high' }
+}

@@ -1,0 +1,221 @@
+# dsh-web-relay 主 agent 粗粒度能力注册表
+# 本表只登记“文档 / Skill / 工具 / 机制”等粗粒度能力入口。
+# 细粒度经验/lesson 请使用 docs/main-agent-lesson-schema-v0.1.md 的规范。
+# category: project | workflow | platform | tool
+# status: active | deprecated
+
+- id: auto-iteration-modeling
+  name: 自动迭代版本建模
+  category: workflow
+  scope: auto-iteration-only
+  source: docs/auto-iteration-modeling.md
+  skill: skills/auto-iteration-modeling/SKILL.md
+  trigger: 用户要求自动迭代 N 个版本
+  conflicts:
+    - manual-development
+  verification:
+    - file-exists: docs/auto-iteration-modeling.md
+    - file-exists: skills/auto-iteration-modeling/SKILL.md
+    - content-contains:
+        file: skills/auto-iteration-modeling/SKILL.md
+        text: "Step 0"
+  lastVerified: 2026-09-02
+  status: approved
+  version: 1
+
+- id: main-agent-runbook
+  name: 主 agent 执行手册
+  category: workflow
+  scope: dsh-web-relay-handoff
+  source: docs/main-agent-runbook-v0.1.md
+  skill: skills/dsh-web-relay-main-agent/SKILL.md
+  trigger: 收到 dsh-web-relay handoff 或需要执行插件任务
+  conflicts: []
+  verification:
+    - file-exists: docs/main-agent-runbook-v0.1.md
+    - content-contains:
+        file: docs/main-agent-runbook-v0.1.md
+        text: "全局执行纪律"
+  lastVerified: 2026-09-03
+  status: approved
+  version: 1
+
+- id: main-agent-lesson-schema
+  name: 主 agent 语境能力沉淀库 Schema
+  category: workflow
+  scope: capability-persistence
+  source: docs/main-agent-lesson-schema-v0.1.md
+  skill: null
+  trigger: 主 agent 收口自检、能力沉淀、lesson 入库
+  conflicts: []
+  verification:
+    - file-exists: docs/main-agent-lesson-schema-v0.1.md
+    - content-contains:
+        file: docs/main-agent-lesson-schema-v0.1.md
+        text: "条目 Schema"
+    - file-exists: docs/main-agent-lessons.json
+  lastVerified: 2026-09-04
+  status: approved
+  version: 1
+
+- id: capability-persistence-design
+  name: 能力持久化及能力验证设计
+  category: workflow
+  scope: capability-persistence
+  source: docs/capability-persistence-design.md
+  skill: null
+  trigger: 实施能力注册表、验证脚本、文档同步机制
+  conflicts: []
+  verification:
+    - file-exists: docs/capability-persistence-design.md
+    - content-contains:
+        file: docs/capability-persistence-design.md
+        text: "文档同步与更新机制"
+  lastVerified: 2026-09-02
+  status: approved
+  version: 1
+
+
+- id: agent-tool-troubleshooting
+  name: 工具/会话能力排障
+  category: platform
+  scope: tool-troubleshooting
+  source: skills/agent-tool-troubleshooting/SKILL.md
+  skill: skills/agent-tool-troubleshooting/SKILL.md
+  trigger: 当前会话没有 shell / bash 不可用 / 工具缺失
+  conflicts: []
+  verification:
+    - file-exists: skills/agent-tool-troubleshooting/SKILL.md
+    - content-contains:
+        file: skills/agent-tool-troubleshooting/SKILL.md
+        text: "standard"
+  lastVerified: 2026-09-02
+  status: approved
+  version: 1
+
+- id: main-agent-auto-iteration-execution
+  name: 主 agent 自动版本迭代执行能力（协议 v1.8→v1.9 考古沉淀）
+  category: workflow
+  scope: auto-iteration-execution
+  source: docs/main-agent-auto-iteration-capabilities.md
+  skill: skills/dsh-web-relay-main-agent/SKILL.md
+  trigger: 自动迭代 N 个版本的执行阶段（实施/回写/提审/发布/收口）
+  conflicts:
+    - manual-development
+  verification:
+    - file-exists: docs/main-agent-auto-iteration-capabilities.md
+    - content-contains:
+        file: docs/main-agent-auto-iteration-capabilities.md
+        text: "能力清单"
+    - file-exists: skills/dsh-web-relay-main-agent/SKILL.md
+  lastVerified: 2026-09-03
+  status: approved
+  version: 1
+
+- id: v3-shadow-sandbox
+  name: 影子试错沙盒（V3.0 机制）
+  category: project
+  scope: high-risk-execution
+  source: docs/main-agent-auto-iteration-capabilities.md
+  skill: null
+  trigger: 高风险/重构改动需要隔离验证或回滚基线时（/shadow create/merge/destroy）
+  conflicts: []
+  verification:
+    - file-exists: docs/main-agent-auto-iteration-capabilities.md
+    - content-contains:
+        file: docs/main-agent-auto-iteration-capabilities.md
+        text: "影子试错沙盒（Shadow Trial Sandbox）"
+  lastVerified: 2026-09-04
+  status: approved
+  version: 1
+
+- id: v3-prompt-case-library
+  name: Prompt 自主进化案例库（V3.1 机制）
+  category: project
+  scope: review-reflection
+  source: docs/main-agent-auto-iteration-capabilities.md
+  skill: null
+  trigger: finalize 收口 / 审核 Prompt 需注入历史打回案例（Top-K≤3）
+  conflicts: []
+  verification:
+    - file-exists: docs/main-agent-auto-iteration-capabilities.md
+    - content-contains:
+        file: docs/main-agent-auto-iteration-capabilities.md
+        text: "Prompt 自主进化案例库（Prompt-case-library，轻量反思）"
+  lastVerified: 2026-09-04
+  status: approved
+  version: 1
+
+- id: v3-swarm-review
+  name: Swarm 双角色盲审（V3.2 机制）
+  category: project
+  scope: review-upgrade
+  source: docs/main-agent-auto-iteration-capabilities.md
+  skill: null
+  trigger: importance:high 步骤需要 Security-Auditor + Refactoring-Architect 双角色盲审
+  conflicts: []
+  verification:
+    - file-exists: docs/main-agent-auto-iteration-capabilities.md
+    - content-contains:
+        file: docs/main-agent-auto-iteration-capabilities.md
+        text: "Swarm 双角色盲审（Security-Auditor + Refactoring-Architect）"
+  lastVerified: 2026-09-04
+  status: approved
+  version: 1
+
+- id: architect-breakthrough-gate
+  name: Architect 突破度三阶评估（协议机制）
+  category: project
+  scope: planning-gate
+  source: docs/main-agent-auto-iteration-capabilities.md
+  skill: null
+  trigger: planning/restructure 需要突破度（Incremental/Structural/Paradigm）校验
+  conflicts: []
+  verification:
+    - file-exists: docs/main-agent-auto-iteration-capabilities.md
+    - content-contains:
+        file: docs/main-agent-auto-iteration-capabilities.md
+        text: "Architect 突破度三阶评估（Incremental/Structural/Paradigm）"
+  lastVerified: 2026-09-04
+  status: approved
+  version: 1
+
+- id: v3-external-channels
+  name: 外部 AI 通道接入机制（web-gemini 栈 + Claude API）
+  category: project
+  scope: channel-integration
+  source: docs/main-agent-auto-iteration-capabilities.md
+  skill: null
+  trigger: 接入/维护外部 AI 通道、通道故障排障、reviewChannel 配置
+  conflicts: []
+  verification:
+    - file-exists: docs/main-agent-auto-iteration-capabilities.md
+    - content-contains:
+        file: docs/main-agent-auto-iteration-capabilities.md
+        text: "web-gemini 通道栈（Web-Gemini Channel Stack）"
+    - content-contains:
+        file: docs/main-agent-auto-iteration-capabilities.md
+        text: "Claude API 通道"
+  lastVerified: 2026-09-04
+  status: approved
+  version: 1
+
+- id: v3-replay-notify-console
+  name: 回放/通知/通道治理机制（Trace Replay + Webhook + reviewChannel + 截断治理）
+  category: project
+  scope: observability-notify
+  source: docs/main-agent-auto-iteration-capabilities.md
+  skill: null
+  trigger: 离线还原轨迹、熔断/降级/打回通知、审核通道选择、防盲审治理
+  conflicts: []
+  verification:
+    - file-exists: docs/main-agent-auto-iteration-capabilities.md
+    - content-contains:
+        file: docs/main-agent-auto-iteration-capabilities.md
+        text: "Trace Replay 离线沙盒"
+    - content-contains:
+        file: docs/main-agent-auto-iteration-capabilities.md
+        text: "reviewChannel 通道选择器"
+  lastVerified: 2026-09-04
+  status: approved
+  version: 1

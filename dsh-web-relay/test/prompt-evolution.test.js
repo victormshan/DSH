@@ -86,3 +86,33 @@ test('source 源码含 v3.1-2 Prompt 进化标记（lib/index.js）', () => {
   assert.ok(src.includes('prompt-case-library.md'))
   assert.ok(src.includes('历史拒收案例（V3.1 反思注入'))
 })
+
+// ---- P1(v3.5.0)：收集"曾被 rejected"的步骤（含 finalize 时已 approved 者）----
+function everRejectedSteps(state) {
+  return (state.steps || []).filter((s) => (s.notes || []).some((n) => n.action === 'rejected'))
+}
+
+test('P1：曾被 rejected 后 approved 的步骤进入案例库候选（反思闭环生效）', () => {
+  const state = {
+    exprId: 'expr-2026-09-04_00-00-00',
+    steps: [
+      { id: '1', status: 'approved', notes: [{ action: 'rejected', text: 'artifacts 为空，请补挂产物' }, { action: 'approved', text: '已补挂，通过' }] },
+      { id: '2', status: 'approved', notes: [{ action: 'approved', text: '' }] },
+      { id: '3', status: 'rejected', notes: [{ action: 'rejected', text: '语法错误 SyntaxError' }] }
+    ]
+  }
+  const cands = everRejectedSteps(state)
+  assert.deepEqual(cands.map((s) => s.id), ['1', '3']) // 1=曾打回后通过；3=仍打回；2=纯通过不入库
+  assert.equal(cands.length, 2)
+})
+
+test('P1：纯 approved 无 rejected 历史 → 候选为空（finalize 全绿场景不再恒空/不误收）', () => {
+  const state = { exprId: 'expr-x', steps: [{ id: '1', status: 'approved', notes: [{ action: 'approved', text: '' }] }] }
+  assert.equal(everRejectedSteps(state).length, 0)
+})
+
+test('P1：source 含 v3.5.0 P1 修复标记（lib/index.js）', () => {
+  const src = fs.readFileSync(new URL('../lib/index.js', import.meta.url), 'utf8')
+  assert.ok(src.includes('P1(v3.5.0)'))
+  assert.ok(src.includes("(s.notes || []).some((n) => n.action === 'rejected')"))
+})
