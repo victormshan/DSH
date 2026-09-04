@@ -19,9 +19,14 @@ const tabActivity = new Map() // v2.3-1: { tabId: lastUsedAt } —— 标签页�
 // v0.4.0: 共享 token 认证（与 bridge-server 同机读取 bridge.token；文件缺失时 bridge 处于
 // 未认证模式会 401，此时明确报错引导用户检查 bridge 版本/重启，而非静默失败）
 let bridgeToken = ''
-try {
-  bridgeToken = (await (await fetch(BRIDGE + '/__token')).json()).token || ''
-} catch { /* 首次加载 bridge 可能未起，pollOnce 时再取 */ }
+async function loadInitialToken() {
+  try {
+    const res = await fetch(BRIDGE + '/__token')
+    const data = await res.json()
+    bridgeToken = (data && data.token) || ''
+  } catch { /* 首次加载 bridge 可能未起，pollOnce 时再取 */ }
+}
+loadInitialToken()
 
 async function ensureToken() {
   if (bridgeToken) return bridgeToken
@@ -75,12 +80,15 @@ async function pollOnce() {
       const target = pickIdleTab(tabs)
       if (!target) return
       console.log('[web-gemini] 取到任务', d.task.id, '→ 分发到 Tab', target.id)
-      // v0.2.1: sendMessage 失败自动重试（MV3 SW 唤醒竞态兜底——content 注入瞬间端口可能未稳定）
+      // 自动激活 Gemini 标签页，确保 content script 可响应（即使用户当前在 harness 页）
+        try { await chrome.tabs.update(target.id, { active: true }); await chrome.windows.update(target.windowId, { focused: true }) } catch (e) {}
+        // v0.2.1: sendMessage 失败自动重试（MV3 SW 唤醒竞态兜底——content 注入瞬间端口可能未稳定）
       let resp = null
-      for (let attempt = 0; attempt < 3 && resp === null; attempt++) {
+      for (let attempt = 0; attempt < 4 && resp === null; attempt++) {
         if (attempt > 0) {
           await new Promise((r) => setTimeout(r, 2000))
-          console.warn('[web-gemini] 任务', d.task.id, 'sendMessage 第', attempt + 1, '次重试（Tab', target.id + '）')
+          try { await chrome.tabs.update(target.id, { active: true }); await chrome.windows.update(target.windowId, { focused: true }) } catch (e) {}
+            console.warn('[web-gemini] 任务', d.task.id, 'sendMessage 第', attempt + 1, '次重试（Tab', target.id + '）')
         }
         resp = await chrome.tabs.sendMessage(target.id, { type: 'handle-task', task: d.task }).catch(() => null)
       }
