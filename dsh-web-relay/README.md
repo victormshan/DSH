@@ -96,6 +96,7 @@ git tag v0.7.0
 
 | 版本 | 协议 | 内容 |
 |---|---|---|
+| 4.0.0 | v1.9 | 宿主重启续跑（cross-restart resume，expr-2026-09-05_13-35-19 external approved）：CURRENT_BOOT_ID 每进程唯一 + 写盘打戳/读白名单（sessionId/bootId/restartCount）；ask/execute 创建落盘 sessionId + record frontmatter；apply 尾 bootResumeScan（跨 bootId 忙态 expr → restartCount+1：resume→trace+wakeMainAgent 自动唤醒续跑 / 无 sessionId 降级留痕；≥2 熔断 paused 防死循环；rejectStreak/iterationBaseCommit 跨重启保持）；/admin/resume-scan 手动触发端点；health-check 暴露 bootId；resume-scan.test 4 例，全量 152/152 |
 | 3.9.3 | v1.9 | watchdog 总守护升级：除托管 3080 宿主外，周期检查桥接链路（8899 /__token）——发现 DSH-Bridge-Watchdog 未运行则自动拉起（bridgeDecision 纯决策：在线 ok / watchdog 在自愈不重复拉 / 双缺拉起 / 无配置跳过；进程探测 powershell spawnSync；独立防风暴）；watchdog.test 13 例，全量 148/148 |
 | 3.9.2 | v1.9 | watchdog 运维加固（expr-2026-09-05_12-50-06 外部 AI 协商收尾）：启动首检立即拉起（不等 miss 轮询，开机空窗 15s→2s，真实模式端到端验证）；单例锁（.watchdog.lock PID 互斥防双开，stale 自动接管）；启动器并入 tailscale serve --bg 持久配置（幂等+重试）；watchdog.test 11 例，全量 146/146 |
 | 3.9.1 | v1.9 | watchdog env 补注入（spawn 宿主前从注册表 User→Machine 回读 GEMINI_API_KEY/GEMINI_MODEL 并入子进程 env——修深层进程链丢 key 致 /status gemini=false；parseRegValue CRLF 修复）；watchdog.test +2（parseRegValue/childEnv），全量 144/144 |
