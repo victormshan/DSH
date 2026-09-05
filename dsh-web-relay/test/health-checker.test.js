@@ -89,7 +89,7 @@ test('source 源码含 v3.2.4 审核通道选择器标记（lib/client.js）', (
   assert.ok(client.includes('v3.2.4: 审核通道选择'))
   assert.ok(client.includes('dsh-web-relay:review-channel'))
   assert.ok(client.includes('reviewChannelWebGemini'))
-  // 单步与批量审核请求都携带 reviewChannel（P2 v3.5.0 起同时携带 enableSwarm）
-  assert.ok(client.includes('protocolVersion, enableSwarm: swarmOn, reviewChannel }'))
-  assert.ok(client.includes('batchStepIds: ids, enableSwarm: swarmOn, reviewChannel'))
+  // 单步与批量审核请求都携带 reviewChannel（P2 v3.5.0 起 enableSwarm；v3.6.0 起 disableShadow）
+  assert.ok(client.includes('protocolVersion, enableSwarm: swarmOn, disableShadow: shadowOff, reviewChannel }'))
+  assert.ok(client.includes('batchStepIds: ids, enableSwarm: swarmOn, disableShadow: shadowOff, reviewChannel'))
 })
