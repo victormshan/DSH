@@ -224,6 +224,9 @@ window.__ModuleLoader__.load({
         rollback: '回滚到上版基线', rollbacking: '回滚中…',
         rollbackConfirm: '确认回滚？将 git reset 到迭代基线（非 git 工作区将给出降级提示）',
         rollbackDone: '已回滚到基线', rollbackDegraded: '非 git 降级提示',
+        // v3.8 Step4: 回滚状态展示增强文案
+        rollbackBaseLabel: '回滚基线', rollbackHistory: '已回滚到',
+        rollbackStepsReset: '步已复位（需重跑重审）', noRollbackBase: '无回滚基线（尚未收口记录基线，无法物理回滚）',
           enterExec: '进入执行阶段',
           parsePlanning: '解析并执行',
           webhookSave: '保存', webhookTest: '测试', notifyOn: '🔔 桌面通知',
@@ -390,6 +393,9 @@ window.__ModuleLoader__.load({
         rollback: 'Rollback to base', rollbacking: 'Rolling back…',
         rollbackConfirm: 'Confirm rollback? git reset to iteration base (non-git workspace will show degrade hint)',
         rollbackDone: 'Rolled back to', rollbackDegraded: 'Non-git degrade',
+        // v3.8 Step4: rollback status display strings
+        rollbackBaseLabel: 'Base', rollbackHistory: 'Rolled back to',
+        rollbackStepsReset: 'step(s) reset (re-run & re-review required)', noRollbackBase: 'No base recorded (not finalized yet) — physical rollback unavailable',
           enterExec: 'Enter execution phase',
           parsePlanning: 'Parse & execute',
           webhookSave: 'Save', webhookTest: 'Test', notifyOn: '🔔 Notify',
@@ -1260,10 +1266,14 @@ window.__ModuleLoader__.load({
             })
             const data = await resp.json().catch(() => ({ ok: false, error: 'bad response' }))
             if (!data.ok) {
-              setError(((data.degraded ? T.btn.rollbackDegraded + '：' : '') + (data.reason || data.error || 'rollback failed')))
+              // v3.8 Step4: 缺基线/降级结果给出明确可读提示（含落盘降级标记时的确认）
+              setError(((data.degraded ? T.btn.rollbackDegraded + '：' : '') + (data.reason || data.error || 'rollback failed')) + (data.marked ? '（已落盘 rollbackDegraded 标记）' : ''))
               return
             }
-            setError(T.btn.rollbackDone + ' ' + String(data.base || '').slice(0, 12))
+            // v3.8 Step4: 回滚成功显示基线 + 复位步数（resetInfo 由 v3.8 Step3 端点返回）
+            const base12 = String(data.base || '').slice(0, 12)
+            const resetTxt = data.resetInfo && data.resetInfo.stepsReset ? ` · ${data.resetInfo.stepsReset}${T.btn.rollbackStepsReset}` : ''
+            setError(T.btn.rollbackDone + ' ' + base12 + resetTxt)
             refreshStepState()
           } catch (e) { setError(String(e?.message || e)) }
           finally { setStepBusy(false); setStepBusyAction('') }
@@ -2266,11 +2276,23 @@ window.__ModuleLoader__.load({
                 h('button', { onClick: finalizeTask, disabled: stepBusy, style: { ...btnStyle, padding: '6px 14px' } },
                   (stepBusy && stepBusyAction === 'finalize') ? T.btn.finalizing : T.btn.finalize)
               ),
-              // v3.7.0 P2 Step3: 回滚到上版基线（二次确认；非 git 降级提示）
+              // v3.7.0 P2 Step3: 回滚到上版基线；v3.8 Step4: 回滚基线与状态展示增强（消费 steps 端点回传 stepState 字段，无后端重复逻辑）
               exprId && steps && steps.length > 0 && !finalSummary &&
-              h('div', { style: { marginTop: 6, display: 'flex', alignItems: 'center', gap: 8 } },
-                h('button', { onClick: rollbackToBase, disabled: stepBusy, className: 'dwr-ghost', style: { ...ghostPurple, padding: '4px 10px', fontSize: 12 } },
-                  (stepBusy && stepBusyAction === 'rollback') ? T.btn.rollbacking : T.btn.rollback)
+              h('div', { style: { marginTop: 6 } },
+                // Step4: 基线 / 非 git 降级 / 回滚历史状态行
+                h('div', { style: { ...hintStyle, fontSize: 11, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 4 } },
+                  (stepState && stepState.rollbackDegraded)
+                    ? h('span', { style: { color: '#fbbf24' } }, '⚠ ' + T.btn.rollbackDegraded + '：' + String(stepState.rollbackDegraded.reason || '').slice(0, 80))
+                    : (stepState && (stepState.iterationBaseCommit || stepState.rollbackBase))
+                      ? h('span', { style: { color: '#93c5fd' } }, T.btn.rollbackBaseLabel + ': ' + String(stepState.rollbackBase || stepState.iterationBaseCommit).slice(0, 12))
+                      : h('span', { style: { color: '#71717a' } }, T.btn.noRollbackBase),
+                  (stepState && stepState.rolledBackAt) &&
+                    h('span', { style: { color: '#4ade80' } }, T.btn.rollbackHistory + ' ' + String(stepState.rollbackBase || '').slice(0, 12) + (stepState.rollbackSteps ? ' · ' + stepState.rollbackSteps + T.btn.rollbackStepsReset : ''))
+                ),
+                h('div', { style: { display: 'flex', alignItems: 'center', gap: 8 } },
+                  h('button', { onClick: rollbackToBase, disabled: stepBusy, className: 'dwr-ghost', style: { ...ghostPurple, padding: '4px 10px', fontSize: 12 } },
+                    (stepBusy && stepBusyAction === 'rollback') ? T.btn.rollbacking : T.btn.rollback)
+                )
               ),
               // v1.5 M4: 审核来源汇总（finalize 成功后的汇总文本）
               finalSummary && h('div', { style: { marginTop: 8 } },

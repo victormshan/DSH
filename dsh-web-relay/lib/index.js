@@ -21,6 +21,8 @@ import path from 'node:path'
 import { buildRolePrompt, swarmConsensus, parseRoleReview, swarmEnablePolicy } from './swarm-prompts.js'
 import { auditBreakthrough } from './breakthrough-gate.js'
 import { checkL1Gate, runL2ShadowGate, shouldUseShadow, resolveRepoPath, runShadowGC, executeRollbackBaseline, getGitHead, gcScheduleMs } from './shadow-gate.js'
+// v3.8 Step3: 回滚后步骤状态复位策略（纯函数，见 lib/rollback-state.js）
+import { applyRollbackReset, markRollbackDegraded } from './rollback-state.js'
 
 // v2.4-1: 插件版本（从 package.json 实时读取，避免硬编码漂移——原 statusHandler 曾长期报 1.3.0）
 export const PLUGIN_VERSION = (() => {
@@ -3367,15 +3369,27 @@ export function apply(ctx) {
       const repo = resolveRepoPath(base) || (typeof payload.repoPath === 'string' ? payload.repoPath : null) || process.env.DSH_RELAY_REPO_PATH || null
       const target = (typeof payload.toCommit === 'string' && payload.toCommit) || state.iterationBaseCommit || null
       if (!repo) {
-        return json(res, 200, { ok: false, degraded: true, reason: '非 git 工作区：不做物理快照回滚；请用增量内存/反向 patch 恢复（v3.6.0 S9 降级语义）' })
+        // v3.8 Step3: 非 git 降级——不物理回滚、不改步骤状态，仅落盘降级标记（面板展示用）
+        markRollbackDegraded(state, '非 git 工作区：不做物理快照回滚；请用增量内存/反向 patch 恢复（v3.6.0 S9 降级语义）')
+        await writeStepState(base, exprId, state, safePolicy).catch(() => {})
+        await appendTrace({ base, safePolicy, exprId, entries: [traceEntry('mainagent', '尝试回滚但为非 git 工作区：已落盘 rollbackDegraded 标记，步骤状态未动（降级提示）')] }).catch(() => {})
+        return json(res, 200, { ok: false, degraded: true, reason: '非 git 工作区：不做物理快照回滚；请用增量内存/反向 patch 恢复（v3.6.0 S9 降级语义）', marked: true })
       }
       if (!target) return json(res, 400, { ok: false, error: '缺少回滚基线（iterationBaseCommit 未记录），请先完成一版或传入 toCommit' })
       const out = executeRollbackBaseline(repo, target)
       if (!out.ok) return json(res, 400, { ok: false, error: out.error || 'rollback failed' })
-      state.incrementalStreak = 0
-      await writeStepState(base, exprId, state, safePolicy).catch(() => {})
-      await appendTrace({ base, safePolicy, exprId, entries: [traceEntry('mainagent', `已回滚到基线 ${target}（/steps/rollback，HEAD=${getGitHead(repo) || 'n/a'}）`)] }).catch(() => {})
-      return json(res, 200, { ok: true, reset: true, base: target, headNow: getGitHead(repo) })
+      // v3.8 Step3: 成功回滚 → 步骤状态复位（approved/executing/review → pending；rejected/pending 保留）
+      const applied = applyRollbackReset(state, { base: target })
+      await writeStepState(base, exprId, state, safePolicy)
+      const headNow = getGitHead(repo)
+      await appendTrace({
+        base, safePolicy, exprId,
+        entries: [traceEntry('mainagent', `已回滚到基线 ${target}（/steps/rollback，HEAD=${headNow || 'n/a'}）；步骤状态复位 ${applied.count} 个（${applied.affected.map((a) => `Step ${a.id}:${a.from}→pending`).join('，') || '无'}）；rejected/pending 保留；finalize 门禁已解锁（需全部重审后重新收口）`)]
+      }).catch(() => {})
+      return json(res, 200, {
+        ok: true, reset: true, base: target, headNow,
+        resetInfo: { stepsReset: applied.count, affected: applied.affected, rolledBackAt: state.rolledBackAt }
+      })
     } catch (err) {
       json(res, 500, { ok: false, error: String(err?.message || err) })
     }
