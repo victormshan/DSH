@@ -33,6 +33,9 @@ export const PLUGIN_VERSION = (() => {
 })()
 // v3.8 Step2（GC 定时化）: 进程级定时 GC 单例（防 apply 多次调用重复装表；finalize 触发语义保留）
 let scheduledGcTimer = null
+// v3.9 S2（优雅停机）: 进程级准备状态——/admin/prepare-restart 触发后停新任务领取；
+// 状态仅存进程内（宿主重启后自然复位为可接受新任务），无需落盘
+let prepareRestartState = null
 
 export const name = 'dsh-web-relay'
 // apiProxy must be a HARD inject (like dsh-side-window): ctx.get('apiProxy')
@@ -1694,6 +1697,9 @@ export function apply(ctx) {
     json(res, 200, {
       ok: true,
       version: PLUGIN_VERSION,
+      // v3.9 S2: 优雅停机准备状态（watchdog / 面板可读：preparing=true 表示准备中）
+      preparing: Boolean(prepareRestartState),
+      preparedAt: prepareRestartState ? prepareRestartState.at : null,
       bridge,
       // Gemini 页面 / 扩展心跳由前端侧探测（见面板 Health Status 状态灯）
       geminiPage: { ok: null, note: '由面板客户端探测' },
@@ -1716,6 +1722,10 @@ export function apply(ctx) {
       const protocolVersion = isConcurrent(payload.protocolVersion) ? payload.protocolVersion : 'v1.5'
 
     if (!provider) return json(res, 400, { ok: false, error: 'missing provider' })
+    // v3.9 S2（优雅停机）: 准备中拒绝新任务领取（409；已完成/审核中流程不受影响）
+    if (prepareRestartState) {
+      return json(res, 409, { ok: false, preparing: true, preparedAt: prepareRestartState.at, reason: '宿主优雅停机准备中（/admin/prepare-restart 已触发）：不接受新任务，请宿主重启后重试' })
+    }
 
     let providerLabel = provider
     const requestProvider = provider // v3.3.2 审计：用户在面板选择的原始通道（gemini-free / web-gemini / claude / manual）
@@ -2508,6 +2518,10 @@ export function apply(ctx) {
         }
         if (action === 'start' && step.status !== 'pending') {
           return json(res, 400, { ok: false, error: `Step ${step.id} 当前状态为 ${step.status}，不能重复开始` })
+        }
+        // v3.9 S2（优雅停机）: 准备中拒绝新步骤启动（409；in-flight 完成/审核不受影响）
+        if (action === 'start' && prepareRestartState) {
+          return json(res, 409, { ok: false, preparing: true, preparedAt: prepareRestartState.at, reason: '宿主优雅停机准备中：不接受新步骤启动，请宿主重启后重试' })
         }
         if (action === 'complete' && step.status !== 'executing' && step.status !== 'pending') {
           return json(res, 400, { ok: false, error: `Step ${step.id} 尚未开始，不能标记完成` })
@@ -3407,6 +3421,41 @@ export function apply(ctx) {
     }
   }
 
+  // v3.9 S2（优雅停机）: /admin/prepare-restart——告警式非强杀：落盘语义（所有 stepState 写入本就同步落盘）+
+  // 停新任务领取（ask 新任务 / steps start）并返回 ready；watchdog 随后执行宿主重启，进程重启后状态自动复位。
+  // GET  → 查询当前准备状态（watchdog/面板轮询用）
+  // POST {cancel?:true} → cancel 取消准备（恢复接受新任务）；否则进入准备态
+  const adminPrepareHandler = (req, res) => {
+    if (req.method === 'OPTIONS') return res.writeHead(204, CORS).end()
+    if (req.method === 'GET') {
+      return json(res, 200, {
+        ok: true,
+        preparing: Boolean(prepareRestartState),
+        preparedAt: prepareRestartState ? prepareRestartState.at : null,
+        note: prepareRestartState ? '优雅停机准备中：新任务领取已停，等待宿主重启（重启后自动复位）' : '未处于优雅停机准备态'
+      })
+    }
+    const readAndRun = async () => {
+      try {
+        const payload = JSON.parse((await readBody(req)) || '{}')
+        if (payload.cancel === true) {
+          prepareRestartState = null
+          return json(res, 200, { ok: true, ready: false, cancelled: true, note: '已取消优雅停机准备，恢复接受新任务' })
+        }
+        prepareRestartState = { at: new Date().toISOString() }
+        // 所有 stepState 写入均为同步落盘（writeStepState → fs.writeText），无内存脏态需冲刷；
+        // 语义上“完成当前 stepState 落盘”由写入路径天然保证。
+        return json(res, 200, {
+          ok: true, ready: true, preparedAt: prepareRestartState.at,
+          note: '优雅停机准备完成：已停收新任务/新步骤启动；请由 watchdog/用户重启宿主（重启后自动复位为可接受新任务）'
+        })
+      } catch (err) {
+        json(res, 500, { ok: false, error: String(err?.message || err) })
+      }
+    }
+    readAndRun()
+  }
+
   const protocolHandler = async (req, res) => {
     if (req.method === 'OPTIONS') return res.writeHead(204, CORS).end()
     json(res, 200, {
@@ -3449,6 +3498,7 @@ export function apply(ctx) {
   ctx.effect(() => webServer.register({ kind: 'exact', path: '/dsh-web-relay/steps/finalize', handler: finalizeHandler }), 'dsh-web-relay: finalize route')
   ctx.effect(() => webServer.register({ kind: 'exact', path: '/dsh-web-relay/steps/rollback', handler: rollbackHandler }), 'dsh-web-relay/steps/rollback')
   ctx.effect(() => webServer.register({ kind: 'exact', path: '/dsh-web-relay/steps/restructure', handler: restructureHandler }), 'dsh-web-relay/steps/restructure')
+  ctx.effect(() => webServer.register({ kind: 'exact', path: '/dsh-web-relay/admin/prepare-restart', handler: adminPrepareHandler }), 'dsh-web-relay/admin/prepare-restart')
 
   // v3.8 Step2（GC 定时化）: 保留 finalize 触发的语义之上，增加进程内周期兜底。
   // 环境开关：DSH_RELAY_REPO_PATH 指定目标仓库（git）；DSH_RELAY_GC_MS 周期毫秒（默认 600000=10min；0/非法=关闭定时，仅保留 finalize 触发）。

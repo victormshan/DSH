@@ -61,7 +61,8 @@ window.__ModuleLoader__.load({
       '.dwr-splitter::after{content:"";position:absolute;left:1px;top:50%;transform:translateY(-50%);width:3px;height:24px;border-radius:2px;background:var(--dsw-alias-border-l1,rgba(0,0,0,.15));transition:background .15s ease}' +
       '.dwr-splitter:hover::after,.dwr-splitter.dwr-dragging::after{background:var(--dsw-alias-brand-primary,#3b82f6)}' +
       '.dwr-rail{position:fixed;top:60px;right:0;bottom:0;width:28px;display:flex;align-items:center;justify-content:center;background:var(--dsw-alias-bg-overlay,#18181b);border-left:1px solid var(--dsw-alias-border-l1,rgba(0,0,0,.12));cursor:pointer;z-index:2147483000}' +
-      '.dwr-ghost:hover{background:var(--dsw-alias-interactive-bg-hover, rgba(0,0,0,.06))}'
+      '.dwr-ghost:hover{background:var(--dsw-alias-interactive-bg-hover, rgba(0,0,0,.06))}' +
+      '@keyframes dwr-blink{0%,100%{opacity:1}50%{opacity:.25}}'
 
     const panelStyle = {
       position: 'fixed', top: 60, right: 0, bottom: 0, zIndex: 2147483000,
@@ -148,6 +149,8 @@ window.__ModuleLoader__.load({
         geminiNotConfigured: '⚠ 未检测到 GEMINI_API_KEY，gemini-free 不可用；可用 manual 粘贴模式。',
         configVersion: 'v',
         configReady: 'Gemini 已就绪',
+        // v3.9 S4: watchdog/优雅停机准备状态提示（/health-check.preparing）
+        preparingRestart: '优雅停机准备中（重启通道已就绪）',
         configNotReady: 'Gemini 未配置',
         copiedHint: '已复制，去网页 Ctrl+V',
         clipboardUnavailable: '剪贴板不可用，请手动复制预览区',
@@ -317,6 +320,8 @@ window.__ModuleLoader__.load({
         geminiNotConfigured: '⚠ GEMINI_API_KEY not detected; gemini-free unavailable. Use manual paste mode.',
         configVersion: 'v',
         configReady: 'Gemini ready',
+        // v3.9 S4: watchdog/graceful-restart readiness hint (/health-check.preparing)
+        preparingRestart: 'Graceful restart preparing (watchdog channel ready)',
         configNotReady: 'Gemini not configured',
         copiedHint: 'Copied — paste into the web AI (Ctrl+V)',
         clipboardUnavailable: 'Clipboard unavailable; copy the preview manually',
@@ -1780,7 +1785,10 @@ window.__ModuleLoader__.load({
               h('span', { style: { width: 8, height: 8, borderRadius: 4, background: '#71717a' } }), 'ext'),
             h('span', { style: { display: 'inline-flex', alignItems: 'center', gap: 4 } },
               h('span', { style: { width: 8, height: 8, borderRadius: 4, background: '#71717a' } }), 'gemini'),
-            h('span', {}, T.configVersion + (health.version || '?'))
+            h('span', {}, T.configVersion + (health.version || '?')),
+            // v3.9 S4: 优雅停机准备中状态灯（琥珀；watchdog 探测通道就绪提示）
+            health.preparing && h('span', { style: { display: 'inline-flex', alignItems: 'center', gap: 4, color: '#fbbf24', fontWeight: 600 } },
+              h('span', { style: { width: 8, height: 8, borderRadius: 4, background: '#fbbf24', animation: 'dwr-blink 1s infinite' } }), T.preparingRestart)
           ),
           // 协议版本选择 + 可展开全文（中/英随界面语言；打包上下文与 Step 实施按所选版本执行）
           protocol && h('div', { style: { display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 4, margin: '2px 0' } },
