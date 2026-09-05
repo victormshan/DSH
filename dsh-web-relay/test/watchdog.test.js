@@ -2,7 +2,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
-import { stormGate, classifyProbe, decideRestart, parseCommand, hostArgv, attemptRestart, parseRegValue, childEnv, parseLock, CFG } from '../bin/watchdog.mjs'
+import { stormGate, classifyProbe, decideRestart, parseCommand, hostArgv, attemptRestart, parseRegValue, childEnv, parseLock, bridgeDecision, CFG } from '../bin/watchdog.mjs'
 
 test('classifyProbe：HTTP200 且 body.ok===true 才算存活', () => {
   assert.equal(classifyProbe({ httpOk: true, okFlag: true }), true)
@@ -115,4 +115,21 @@ test('source 标记：启动首检立即拉起 + 单例锁（bin/watchdog.mjs v3
   assert.ok(src.includes('已有 watchdog 实例在运行'))
   assert.ok(src.includes('process.exit(0)'))
   assert.ok(src.includes('lockFile'))
+})
+
+// ---- v3.9.3：总守护——桥接链路（DSH-Bridge-Watchdog / 8899）----
+test('bridgeDecision：在线 ok / watchdog 在自愈 / 双缺拉起 / 无配置跳过', () => {
+  assert.deepEqual(bridgeDecision({ bridgeAlive: true, watchdogAlive: true }), { action: 'ok' })
+  assert.deepEqual(bridgeDecision({ bridgeAlive: false, watchdogAlive: true }), { action: 'watchdog-holds' })
+  assert.deepEqual(bridgeDecision({ bridgeAlive: false, watchdogAlive: false, path: 'X:\\bridge-watchdog.mjs' }), { action: 'spawn-watchdog', path: 'X:\\bridge-watchdog.mjs' })
+  assert.deepEqual(bridgeDecision({ bridgeAlive: false, watchdogAlive: false, path: '' }), { action: 'no-config' })
+})
+
+test('source 标记：桥接链路总守护（bin/watchdog.mjs v3.9.3）', () => {
+  const src = fs.readFileSync(new URL('../bin/watchdog.mjs', import.meta.url), 'utf8')
+  assert.ok(src.includes('auxBridgeTick'))
+  assert.ok(src.includes('bridgeProbeUrl'))
+  assert.ok(src.includes("'bridge-watchdog'"))          // 进程探测
+  assert.ok(src.includes('spawn(CFG.nodeExe, [d.path]')) // 拉起 DSH-Bridge-Watchdog
+  assert.ok(src.includes('v3.9.3'))
 })

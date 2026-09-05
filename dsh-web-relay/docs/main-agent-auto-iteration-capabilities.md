@@ -75,7 +75,7 @@
 | E8 | Webhook 通知中心 | notifyWebhook fire-and-forget（熔断/降级/审核打回三触发点，DSH_RELAY_WEBHOOK_URL）；面板通知中心（Webhook URL 配置+桌面 Notification） | ✅ 实现｜面板可配置 | commit 027a5e3（v2.2.0）；expr-08-27_22-15-02 |
 | E9 | reviewChannel 通道选择器 | client.js Step List 头部 select（auto/web-gemini，localStorage 持久化）+ 后端 payload.reviewChannel（4f019cc/f4576f4/b21bdc3，v3.2.2-3.2.4） | ✅ 实现｜面板可配置 | commit v3.2.2-3.2.4 |
 | E10 | 通道/审核上下文治理（摘要截断标注 + 超时/aborted 拦截） | buildArtifactsSummary 截断标注（bf19c60 v3.2.5）；dialog/claude 超时 300s + error/aborted chunk 拦截（3875eeb v3.2.6） | ✅ 实现｜防盲审/防截断 | commit bf19c60/3875eeb |
-| E11 | 优雅停机 + 宿主 Watchdog 自愈（低摩擦交付支柱） | lib/index.js：/admin/prepare-restart（进程级 prepareRestartState：ask/start 409、cancel 复位、health-check 暴露 preparing）；bin/watchdog.mjs 独立进程（/health-check 探测 miss≥3→prepare→taskkill 树杀→spawn；stormGate 防风暴先判门再记录；DRYRUN 模拟）；client.js 面板琥珀提示灯 | ✅ 实现（v3.9.0 258da98/8b16cfa）｜实机 E2E：prepare→409 拒收→cancel 复位 PASS；DRYRUN 失联模拟暴露并修复计数膨胀 bug | expr-2026-09-05_01-53-03（S1-S5 external approved）；watchdog.test 7 + admin.test 2 |
+| E11 | 优雅停机 + 宿主 Watchdog 自愈（低摩擦交付支柱） | lib/index.js：/admin/prepare-restart（进程级 prepareRestartState：ask/start 409、cancel 复位、health-check 暴露 preparing）；bin/watchdog.mjs 独立进程（/health-check 探测 miss≥3→prepare→taskkill 树杀→spawn；stormGate 防风暴先判门再记录；DRYRUN 模拟）；client.js 面板琥珀提示灯 | ✅ 实现（v3.9.0 258da98/8b16cfa）｜**加固（v3.9.1-3.9.3）**：env 注册表补注入（GEMINI key）；启动首检 2s 拉起 + 单例锁；启动器 tailscale serve --bg 持久化；**总守护（v3.9.3）**：周期检查桥接链路，DSH-Bridge-Watchdog 未运行自动拉起（bridgeDecision 纯决策 + 独立防风暴）；实机 E2E：watchdog→宿主 PPID 归属、prepare→409→cancel | expr-2026-09-05_01-53-03（v3.9.0）；expr-2026-09-05_12-50-06（v3.9.2）；watchdog.test 13 + admin.test 2 |
 
 > 层间关系：A-D 是主 agent"怎么做"的行为能力；E 是"交付了什么"的引擎机制；二者通过"接线状态"衔接——E1/E2/E3 的接线缺口即 V3 gap P0-P3（P1-P3），补接线属 v3.5.0 候选。
 
