@@ -2,7 +2,7 @@
   "meta": {
     "schemaVersion": "0.1",
     "title": "dsh-web-relay 主 agent 语境能力 lesson 库（机器可读）",
-    "updatedAt": "2026-09-05T13:30:00.000Z",
+    "updatedAt": "2026-09-05T14:10:00.000Z",
     "carrierOf": "docs/main-agent-lesson-schema-v0.1.md",
     "statusConvention": "proposed（主 agent 产出）→ approved / in-runbook（用户或外部 AI 确认，记 confirmedBy/confirmedAt）；in-runbook=要点已并入 main-agent-runbook 正文；superseded=内容已并入他条（扩展值，机器消费时应跳过）",
     "confirmedAt": "2026-09-04T13:14:35.897Z",
@@ -492,6 +492,38 @@
         "L-2026-0903-004"
       ],
       "recordedAt": "2026-09-05T13:30:00.000Z"
+    },
+    {
+      "id": "L-2026-0905-030",
+      "title": "测试文件必须严格 *.test.js 命名（套件 glob 只认 .test.js 结尾，否则静默漏跑）",
+      "category": "tooling-trap",
+      "layer": "L3",
+      "trigger": "新增 node --test 测试文件、确认全量测试计数时",
+      "decision": "测试文件统一 <name>.test.js 命名（如 client-restart.test.js），禁 test-<name>.js 形式；新增后核对全量计数（文件数=23、用例数递增），发现计数未增即查命名/glob",
+      "rationale": "AutoIteration 实验 V2：test-client-restart.js 不以 .test.js 结尾被 test/*.test.js glob 静默跳过——单跑 2/2 通过但全量仍 152，险些漏测；改名 client-restart.test.js 后 154/154",
+      "evidence": "expr-2026-09-05_13-58-07 V2；commit c1bbb1b；docs/AUTO-ITERATION-ANALYSIS.md 观察点 E",
+      "confidence": "high",
+      "status": "approved",
+      "suggested": "in-runbook",
+      "crossRef": [],
+      "recordedAt": "2026-09-05T14:10:00.000Z"
+    },
+    {
+      "id": "L-2026-0905-031",
+      "title": "AutoIteration 声明必须用机读 JSON 块（叙述式 {\"iterations\":N} 常不被 extractAutoIterDecl 解析）",
+      "category": "collaboration-rhythm",
+      "layer": "L3",
+      "trigger": "向外部 AI 发起多版本（iterations≥2）任务、prompt 声明迭代参数时",
+      "decision": "声明独立成 ```json 块（{\"iterations\":N,\"autoDecision\":true,\"finalAcceptance\":\"…\"}）而非中文叙述；发起后先读 steps.json 顶层确认 iterations 落盘，未落盘即修正后再推进（lesson 002 同族）",
+      "rationale": "实验 V1：叙述式「声明：{\"iterations\":3,…}」首行未解析 → steps.json iterations=1，版间门无法多版推进；人工修正落盘后才 V1→V2→V3 自动演进",
+      "evidence": "expr-2026-09-05_13-58-07（V1 修正记录）；docs/AUTO-ITERATION-ANALYSIS.md 观察点 A；关联 L-2026-0903-002",
+      "confidence": "high",
+      "status": "approved",
+      "suggested": "in-runbook",
+      "crossRef": [
+        "L-2026-0903-002"
+      ],
+      "recordedAt": "2026-09-05T14:10:00.000Z"
     }
   ]
 }

@@ -96,6 +96,9 @@ git tag v0.7.0
 
 | 版本 | 协议 | 内容 |
 |---|---|---|
+| 4.3.0 | v1.9 | AutoIteration 实验 V3 收口（expr-2026-09-05_13-58-07，11 步全 approved）：docs/AUTO-ITERATION-ANALYSIS.md（完全自主三方协作自动迭代效果分析：6 观察点+数据+改进建议）；lessons 030/031（.test.js 命名陷阱、AutoIteration 声明机读 JSON 块）；全量 154/154 |
+| 4.2.0 | v1.9 | AutoIteration 实验 V2（expr-2026-09-05_13-58-07）：运维 SOP docs/OPS-RESTART-RESUME.md（架构/重启续跑机制/面板徽标/应急 SOP/命令）；client 续跑/熔断审计日志；client-restart.test 2 例（含命名修正）；全量 154/154 |
+| 4.1.0 | v1.9 | AutoIteration 实验 V1（expr-2026-09-05_13-58-07）：面板托管/续跑状态呈现——健康行 bootId 短显 + 回滚状态行重启续接徽标（↻ restartCount·自动续跑 / ⛔ 续跑熔断·已跨重启 N）；zh/en +4 键；纯 client 零后端改动；全量 152/152 |
 | 4.0.0 | v1.9 | 宿主重启续跑（cross-restart resume，expr-2026-09-05_13-35-19 external approved）：CURRENT_BOOT_ID 每进程唯一 + 写盘打戳/读白名单（sessionId/bootId/restartCount）；ask/execute 创建落盘 sessionId + record frontmatter；apply 尾 bootResumeScan（跨 bootId 忙态 expr → restartCount+1：resume→trace+wakeMainAgent 自动唤醒续跑 / 无 sessionId 降级留痕；≥2 熔断 paused 防死循环；rejectStreak/iterationBaseCommit 跨重启保持）；/admin/resume-scan 手动触发端点；health-check 暴露 bootId；resume-scan.test 4 例，全量 152/152 |
 | 3.9.3 | v1.9 | watchdog 总守护升级：除托管 3080 宿主外，周期检查桥接链路（8899 /__token）——发现 DSH-Bridge-Watchdog 未运行则自动拉起（bridgeDecision 纯决策：在线 ok / watchdog 在自愈不重复拉 / 双缺拉起 / 无配置跳过；进程探测 powershell spawnSync；独立防风暴）；watchdog.test 13 例，全量 148/148 |
 | 3.9.2 | v1.9 | watchdog 运维加固（expr-2026-09-05_12-50-06 外部 AI 协商收尾）：启动首检立即拉起（不等 miss 轮询，开机空窗 15s→2s，真实模式端到端验证）；单例锁（.watchdog.lock PID 互斥防双开，stale 自动接管）；启动器并入 tailscale serve --bg 持久配置（幂等+重试）；watchdog.test 11 例，全量 146/146 |
