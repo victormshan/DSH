@@ -2512,7 +2512,7 @@ export function apply(ctx) {
             step.artifacts = [...merged]
           }
           // v3.6.0 Step2（影子沙盒支撑 S8/S9）：L1/L2 门禁——失败拒绝 complete 并回传结构化错误清单
-          const repoRoot = resolveRepoPath(base) || process.env.DSH_RELAY_REPO_PATH || null
+          const repoRoot = resolveRepoPath(base) || (typeof payload.repoPath === 'string' ? payload.repoPath : null) || process.env.DSH_RELAY_REPO_PATH || null
           const gateMode = payload.disableShadow === true || payload.shadowGate === 'off' ? 'off' : (payload.shadowGate === 'on' ? 'on' : 'auto')
           const shadowFiles = (step.artifacts || []).map((x) => String(x)).filter((a) => /\.(js|mjs|cjs|py|ts)$/i.test(a))
           const gateLevel = gateMode === 'off'
