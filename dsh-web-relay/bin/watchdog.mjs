@@ -29,7 +29,8 @@ export const CFG = {
   webBin: process.env.DSH_WEB_BIN || path.join(path.dirname(process.execPath), 'node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js'),
   webArgs: (process.env.DSH_WEB_ARGS || 'web').trim(),
   webCmd: (process.env.DSH_WEB_CMD || '').trim(),
-  logFile: process.env.DSH_WEB_LOG || path.join(__dirname, 'watchdog-host.log')
+  logFile: process.env.DSH_WEB_LOG || path.join(__dirname, 'watchdog-host.log'),
+  dryRun: process.env.DSH_WEB_DRYRUN === '1'   // 模拟模式：只打日志不 kill/spawn（验收模拟用，防误杀真实宿主）
 }
 const healthUrl = () => `http://127.0.0.1:${CFG.port}/dsh-web-relay/health-check`
 const prepareUrl = () => `http://127.0.0.1:${CFG.port}/dsh-web-relay/admin/prepare-restart`
@@ -45,6 +46,13 @@ export function stormGate(restartTimes, { now = Date.now(), max = CFG.maxRestart
 }
 export function classifyProbe({ httpOk, okFlag } = {}) { return httpOk === true && okFlag === true }
 export function decideRestart({ missCount, missN = CFG.missN } = {}) { return missCount >= missN }
+// 重启尝试门：先判防风暴再记录（暂停期不累计，避免次数无限膨胀）
+export function attemptRestart(restartTimes, { now = Date.now(), max = CFG.maxRestarts, windowMs = CFG.windowMs, pauseMs = CFG.pauseMs } = {}) {
+  const gate = stormGate(restartTimes, { now, max, windowMs, pauseMs })
+  if (!gate.allow) return { allowed: false, pauseRemainingMs: gate.pauseRemainingMs, restartTimes }
+  restartTimes.push(now)
+  return { allowed: true, pauseRemainingMs: 0, restartTimes }
+}
 // 简单命令解析：双引号段保持原样（不处理转义），其余按空白拆分
 export function parseCommand(cmd) {
   const out = []
@@ -115,9 +123,12 @@ function spawnHost() {
 }
 
 function doRestart() {
-  restartTimes.push(Date.now())
-  const gate = stormGate(restartTimes)
-  if (!gate.allow) { log(`防风暴暂停：窗口内已重启 ${gate.recent} 次，暂停 ${Math.round(gate.pauseRemainingMs / 1000)}s`); return }
+  const attempt = attemptRestart(restartTimes)
+  if (!attempt.allowed) { log(`防风暴暂停：暂停 ${Math.round(attempt.pauseRemainingMs / 1000)}s（窗口内已重启 ${restartTimes.length} 次，暂停期不累计）`); return }
+  if (CFG.dryRun) {
+    log(`[DRYRUN] 将执行重启流程：POST /admin/prepare-restart → taskkill 旧 PID → spawn 宿主（${CFG.nodeExe} ${hostArgv().join(' ')}）；防风暴仍生效（已重启 ${restartTimes.length} 次）`)
+    return
+  }
   prepareBestEffort()
   log('触发重启流程：已请求 /admin/prepare-restart（优雅落盘）')
   if (child) { killPidTree(child.pid); child = null }

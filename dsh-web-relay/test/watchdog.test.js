@@ -2,7 +2,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
-import { stormGate, classifyProbe, decideRestart, parseCommand, hostArgv, CFG } from '../bin/watchdog.mjs'
+import { stormGate, classifyProbe, decideRestart, parseCommand, hostArgv, attemptRestart, CFG } from '../bin/watchdog.mjs'
 
 test('classifyProbe：HTTP200 且 body.ok===true 才算存活', () => {
   assert.equal(classifyProbe({ httpOk: true, okFlag: true }), true)
@@ -37,6 +37,24 @@ test('parseCommand：双引号段保留原样，空白拆分', () => {
   assert.deepEqual(parseCommand('web'), ['web'])
   assert.deepEqual(parseCommand('web --trusted-host a.b'), ['web', '--trusted-host', 'a.b'])
   assert.deepEqual(parseCommand('"C:\\Program Files\\node.exe" web'), ['C:\\Program Files\\node.exe', 'web'])
+})
+
+test('attemptRestart：先判门再记录——暂停期不累计、窗口滑出后恢复', () => {
+  const times = []
+  const now = 1_000_000
+  // max=3：前 3 次窗口内允许并记录
+  const a1 = attemptRestart(times, { now: now - 3000, max: 3, windowMs: 600000, pauseMs: 600000 })
+  assert.equal(a1.allowed, true); assert.equal(times.length, 1)
+  const a2 = attemptRestart(times, { now: now - 2000, max: 3, windowMs: 600000, pauseMs: 600000 })
+  assert.equal(a2.allowed, true); assert.equal(times.length, 2)
+  const a3 = attemptRestart(times, { now: now - 1000, max: 3, windowMs: 600000, pauseMs: 600000 })
+  assert.equal(a3.allowed, true); assert.equal(times.length, 3)
+  // 第 4 次被门拦下且不记录（防模拟中计数膨胀）
+  const a4 = attemptRestart(times, { now, max: 3, windowMs: 600000, pauseMs: 600000 })
+  assert.equal(a4.allowed, false); assert.equal(times.length, 3); assert.ok(a4.pauseRemainingMs > 0)
+  // 窗口滑出（时间前进超过 windowMs+pauseMs）→ 恢复允许
+  const a5 = attemptRestart(times, { now: now + 1_300_000, max: 3, windowMs: 600000, pauseMs: 600000 })
+  assert.equal(a5.allowed, true); assert.equal(times.length, 4)
 })
 
 test('hostArgv：DSH_WEB_CMD 优先，否则 bin + args', () => {
