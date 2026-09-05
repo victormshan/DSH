@@ -1453,12 +1453,13 @@ export function apply(ctx) {
           rollbackBase: data.rollbackBase || null,
           rollbackSteps: data.rollbackSteps || 0,
           rollbackDegraded: data.rollbackDegraded || null,
-          // v4.0 Step1（重启续跑）: sessionId/bootId/restartCount 纳入读白名单
+          // v4.0 Step1（重启续跑）: sessionId/bootId/restartCount 纳入读白名单；v4.4 续跑测试: resumeQueuedAt
           sessionId: data.sessionId || null,
           bootId: data.bootId || null,
-          restartCount: data.restartCount || 0 }
+          restartCount: data.restartCount || 0,
+          resumeQueuedAt: data.resumeQueuedAt || null }
       } catch (err) { /* no state yet */ }
-      return { exprId, steps: [], currentStep: null, status: 'open', phase: 'planning', architectNotes: null, contextRequests: [], autoReview: false, stopReason: null, stoppedAt: null, finalized: false, finalizedAt: null, finalSummary: null, protocolVersion: 'v1.5', activeSteps: [], iterations: 1, currentIteration: 1, finalAcceptance: null, autoDecision: false, rejectStreak: 0, incrementalStreak: 0, iterationBaseCommit: null, rolledBackAt: null, rollbackBase: null, rollbackSteps: 0, rollbackDegraded: null, sessionId: null, bootId: null, restartCount: 0 }
+      return { exprId, steps: [], currentStep: null, status: 'open', phase: 'planning', architectNotes: null, contextRequests: [], autoReview: false, stopReason: null, stoppedAt: null, finalized: false, finalizedAt: null, finalSummary: null, protocolVersion: 'v1.5', activeSteps: [], iterations: 1, currentIteration: 1, finalAcceptance: null, autoDecision: false, rejectStreak: 0, incrementalStreak: 0, iterationBaseCommit: null, rolledBackAt: null, rollbackBase: null, rollbackSteps: 0, rollbackDegraded: null, sessionId: null, bootId: null, restartCount: 0, resumeQueuedAt: null }
     }
 
     async function writeStepState(base, exprId, state, safePolicy) {
@@ -1493,10 +1494,11 @@ export function apply(ctx) {
           rollbackBase: state.rollbackBase || null,
           rollbackSteps: state.rollbackSteps || 0,
           rollbackDegraded: state.rollbackDegraded || null,
-          // v4.0 Step1（重启续跑）: sessionId 透传；bootId 打当前宿主戳（重启检测依据）；restartCount 透传
+          // v4.0 Step1（重启续跑）: sessionId 透传；bootId 打当前宿主戳（重启检测依据）；restartCount 透传；v4.4 续跑测试: resumeQueuedAt
           sessionId: state.sessionId || null,
           bootId: CURRENT_BOOT_ID,
           restartCount: state.restartCount || 0,
+          resumeQueuedAt: state.resumeQueuedAt || null,
         updatedAt: new Date().toISOString()
       }
       await fs.writeText(target, JSON.stringify(payload, null, 2), undefined, undefined, safePolicy)
@@ -1691,6 +1693,12 @@ export function apply(ctx) {
           if (st.sessionId) {
             const w = await wakeMainAgent({ sessionId: st.sessionId, handoffText: resumeHandoff(st, exprId) }).catch(() => ({ agentWoken: false, reason: 'wake 异常' }))
             console.warn(`[dsh-web-relay] 重启续跑唤醒 ${exprId} → ${w.agentWoken ? '已唤醒（会话已排入续跑 prompt）' : '失败: ' + (w.reason || 'unknown')}`)
+            // v4.4 续跑测试打标：wake 成功 → resumeQueuedAt 落盘（区分「已排队」vs「harness 未消费」）
+            if (w.agentWoken) {
+              st.resumeQueuedAt = new Date().toISOString()
+              await writeStepState(base, exprId, st, sf).catch(() => {})
+              console.warn(`[dsh-web-relay] [bootResumeScan] Session wake queued for ${st.sessionId} (expr: ${exprId}) @ ${st.resumeQueuedAt}`)
+            }
           } else {
             console.warn(`[dsh-web-relay] 重启续跑 ${exprId}：无 sessionId，跳过唤醒（trace 已留痕，等待用户「继续」）`)
           }
