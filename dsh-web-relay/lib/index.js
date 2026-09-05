@@ -20,7 +20,7 @@ import path from 'node:path'
 // V3.2: 多角色盲审 Swarm Prompt 模板与共识合成（lib/swarm-prompts.js 纯函数模块）
 import { buildRolePrompt, swarmConsensus, parseRoleReview, swarmEnablePolicy } from './swarm-prompts.js'
 import { auditBreakthrough } from './breakthrough-gate.js'
-import { checkL1Gate, runL2ShadowGate, shouldUseShadow, resolveRepoPath, runShadowGC, executeRollbackBaseline } from './shadow-gate.js'
+import { checkL1Gate, runL2ShadowGate, shouldUseShadow, resolveRepoPath, runShadowGC, executeRollbackBaseline, getGitHead } from './shadow-gate.js'
 
 // v2.4-1: 插件版本（从 package.json 实时读取，避免硬编码漂移——原 statusHandler 曾长期报 1.3.0）
 export const PLUGIN_VERSION = (() => {
@@ -3199,10 +3199,25 @@ export function apply(ctx) {
         state.finalized = true
         state.finalizedAt = new Date().toISOString()
         state.finalSummary = summary.text
+        // v3.7.0 P2 Step2: finalize 前记录回滚基线（iterationBaseCommit = 当前 HEAD）
+        {
+          const repoBase = resolveRepoPath(base) || (typeof payload.repoPath === 'string' ? payload.repoPath : null) || process.env.DSH_RELAY_REPO_PATH || null
+          const head = getGitHead(repoBase)
+          if (head) state.iterationBaseCommit = head
+        }
         const updated = await writeStepState(base, exprId, state, safePolicy)
         await appendTrace({ base, safePolicy, exprId, entries: [traceEntry('mainagent', summary.text)] }).catch(() => {})
         // v3.1-2: 收口时收集拒收案例（聚类 + 幂等追加案例库，后台静默）
         await collectRejectedCases(state, base, safePolicy).catch(() => {})
+        // v3.7.0 P2 Step1: 自动影子 GC（孤儿 worktree 清理留痕；SHADOW_MAX 上限保护见 shadow-gate）
+        {
+          const gcRepo = resolveRepoPath(base) || (typeof payload.repoPath === 'string' ? payload.repoPath : null) || process.env.DSH_RELAY_REPO_PATH || null
+          if (gcRepo) {
+            const gc = runShadowGC(gcRepo)
+            if (!gc.ok) console.warn('[dsh-web-relay] Shadow GC 失败:', gc.error)
+            else if (gc.pruned > 0) console.warn(`[dsh-web-relay] Shadow GC 清理孤儿 worktree：${gc.pruned} 个（active=${gc.active}/${gc.max}）`)
+          }
+        }
 
         let wake = null
         if (sessionId) {
@@ -3338,6 +3353,32 @@ export function apply(ctx) {
         json(res, 500, { ok: false, error: String(err?.message || err) })
       }
     }
+  const rollbackHandler = async (req, res) => {
+    try {
+      if (req.method === 'OPTIONS') return res.writeHead(204, CORS).end()
+      const payload = JSON.parse((await readBody(req)) || '{}')
+      const exprId = typeof payload.exprId === 'string' ? payload.exprId.trim() : ''
+      if (!TRACE_ID_RE.test(exprId)) return json(res, 400, { ok: false, error: 'invalid exprId' })
+      const base = baseOf(payload.workspacePath)
+      const safePolicy = safePolicyFor(base)
+      const state = await readStepState(base, exprId)
+      const repo = resolveRepoPath(base) || (typeof payload.repoPath === 'string' ? payload.repoPath : null) || process.env.DSH_RELAY_REPO_PATH || null
+      const target = (typeof payload.toCommit === 'string' && payload.toCommit) || state.iterationBaseCommit || null
+      if (!repo) {
+        return json(res, 200, { ok: false, degraded: true, reason: '非 git 工作区：不做物理快照回滚；请用增量内存/反向 patch 恢复（v3.6.0 S9 降级语义）' })
+      }
+      if (!target) return json(res, 400, { ok: false, error: '缺少回滚基线（iterationBaseCommit 未记录），请先完成一版或传入 toCommit' })
+      const out = executeRollbackBaseline(repo, target)
+      if (!out.ok) return json(res, 400, { ok: false, error: out.error || 'rollback failed' })
+      state.incrementalStreak = 0
+      await writeStepState(base, exprId, state, safePolicy).catch(() => {})
+      await appendTrace({ base, safePolicy, exprId, entries: [traceEntry('mainagent', `已回滚到基线 ${target}（/steps/rollback，HEAD=${getGitHead(repo) || 'n/a'}）`)] }).catch(() => {})
+      return json(res, 200, { ok: true, reset: true, base: target, headNow: getGitHead(repo) })
+    } catch (err) {
+      json(res, 500, { ok: false, error: String(err?.message || err) })
+    }
+  }
+
   const protocolHandler = async (req, res) => {
     if (req.method === 'OPTIONS') return res.writeHead(204, CORS).end()
     json(res, 200, {
@@ -3378,5 +3419,6 @@ export function apply(ctx) {
   ctx.effect(() => webServer.register({ kind: 'exact', path: '/dsh-web-relay/record', handler: recordHandler }), 'dsh-web-relay/record')
   ctx.effect(() => webServer.register({ kind: 'exact', path: '/dsh-web-relay/protocol', handler: protocolHandler }), 'dsh-web-relay/protocol')
   ctx.effect(() => webServer.register({ kind: 'exact', path: '/dsh-web-relay/steps/finalize', handler: finalizeHandler }), 'dsh-web-relay: finalize route')
+  ctx.effect(() => webServer.register({ kind: 'exact', path: '/dsh-web-relay/steps/rollback', handler: rollbackHandler }), 'dsh-web-relay/steps/rollback')
   ctx.effect(() => webServer.register({ kind: 'exact', path: '/dsh-web-relay/steps/restructure', handler: restructureHandler }), 'dsh-web-relay/steps/restructure')
 }

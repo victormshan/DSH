@@ -4,7 +4,7 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { checkL1Gate, resolveRepoPath, shouldUseShadow, runShadowGC, executeRollbackBaseline, runL2ShadowGate } from '../lib/shadow-gate.js'
+import { checkL1Gate, resolveRepoPath, shouldUseShadow, runShadowGC, executeRollbackBaseline, runL2ShadowGate, getGitHead } from '../lib/shadow-gate.js'
 
 const REPO = 'D:/DSH'
 const NON_REPO = 'D:/dsh relay test'
@@ -66,4 +66,23 @@ test('source 标记：lib/index.js 已接入 shadow-gate（v3.6.0 Step2）', () 
   assert.ok(src.includes('blocked: \'shadow-l1\''))
   assert.ok(src.includes('shadow-l2'))
   assert.ok(sg.includes('v3.6.0'))
+})
+
+// ---- v3.7.0 P2：回滚基线 + rollback 端点 ----
+test('getGitHead：git 仓库返回 HEAD（40hex），非 git 返回 null', () => {
+  const head = getGitHead(REPO)
+  assert.ok(typeof head === 'string' && /^[0-9a-f]{40}$/.test(head))
+  assert.equal(getGitHead(NON_REPO), null)
+  assert.equal(getGitHead(null), null)
+})
+
+test('source 标记：rollback 端点与 GC 自动挂载（lib/index.js + client.js，v3.7.0 P2）', () => {
+  const src = fs.readFileSync(new URL('../lib/index.js', import.meta.url), 'utf8')
+  const client = fs.readFileSync(new URL('../lib/client.js', import.meta.url), 'utf8')
+  assert.ok(src.includes('const rollbackHandler'))
+  assert.ok(src.includes("'/dsh-web-relay/steps/rollback'"))
+  assert.ok(src.includes('iterationBaseCommit'))
+  assert.ok(src.includes('Shadow GC 清理孤儿 worktree'))
+  assert.ok(client.includes('rollbackToBase'))
+  assert.ok(client.includes("'/dsh-web-relay/steps/rollback'"))
 })

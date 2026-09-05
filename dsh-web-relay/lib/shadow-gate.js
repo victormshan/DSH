@@ -136,3 +136,13 @@ export function runL2ShadowGate({ repoPath, baseCommit, changedFiles = [], cwd }
     return { ok: false, error: String((err && err.stderr) || (err && err.message) || err).slice(0, 500) }
   }
 }
+
+// v3.7.0 P2: 取当前 HEAD（回滚基线记录用）；非 git 返回 null
+export function getGitHead(repoPath) {
+  if (!repoPath) return null
+  try {
+    return git(repoPath, 'rev-parse HEAD').trim() || null
+  } catch (err) {
+    return null
+  }
+}

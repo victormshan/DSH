@@ -2,12 +2,12 @@
   "meta": {
     "schemaVersion": "0.1",
     "title": "dsh-web-relay 主 agent 语境能力 lesson 库（机器可读）",
-    "updatedAt": "2026-09-05T00:00:00.000Z",
+    "updatedAt": "2026-09-05T01:00:00.000Z",
     "carrierOf": "docs/main-agent-lesson-schema-v0.1.md",
     "statusConvention": "proposed（主 agent 产出）→ approved / in-runbook（用户或外部 AI 确认，记 confirmedBy/confirmedAt）；in-runbook=要点已并入 main-agent-runbook 正文；superseded=内容已并入他条（扩展值，机器消费时应跳过）",
     "confirmedAt": "2026-09-04T13:14:35.897Z",
     "confirmedBy": "user（主对话确认：同意三态分类建议）",
-    "confirmationNote": "2026-09-05：追加 v3.6.0 复盘 lesson 025-027（proposed，待用户/外部确认转 approved）。"
+    "confirmationNote": "2026-09-05：用户确认 025-027 转 approved。"
   },
   "lessons": [
     {
@@ -423,11 +423,11 @@
       "rationale": "v3.6.0 实测抓到 3 个真 bug（P1 fs.writeText 5 参错位致案例库从不写入；P3 incrementalStreak 未持久化；P3 restructure 审 normalizedNew 丢 breakthrough_type），单测全绿仍漏",
       "evidence": "expr-2026-09-04_17-45-25 E2E 实证；commit 8535fda",
       "confidence": "high",
-      "status": "proposed",
+      "status": "approved",
       "suggested": "approved",
       "recordedAt": "2026-09-05T00:00:00.000Z",
-      "confirmedBy": null,
-      "confirmedAt": null
+      "confirmedBy": "user",
+      "confirmedAt": "2026-09-05T01:00:00.000Z"
     },
     {
       "id": "L-2026-0905-026",
@@ -439,11 +439,11 @@
       "rationale": "v3.6.0 5 步外部审核 2 次打回-补证闭环，拦截\"虚假完成\"；证据型完成是三方可信的基石",
       "evidence": "expr-2026-09-04_17-45-25（Step1/5 打回补证）",
       "confidence": "high",
-      "status": "proposed",
+      "status": "approved",
       "suggested": "approved",
       "recordedAt": "2026-09-05T00:00:00.000Z",
-      "confirmedBy": null,
-      "confirmedAt": null
+      "confirmedBy": "user",
+      "confirmedAt": "2026-09-05T01:00:00.000Z"
     },
     {
       "id": "L-2026-0905-027",
@@ -455,11 +455,11 @@
       "rationale": "v3.6.0 以\"client 刷新即生效 + host 改动聚合一次重启\"完成 5 步收口；设计文档 §10 三类支撑（门禁/影子/热路径）",
       "evidence": "docs/auto-iteration-shadow-support-design.md §10；expr-2026-09-04_17-45-25",
       "confidence": "medium",
-      "status": "proposed",
+      "status": "approved",
       "suggested": "approved",
       "recordedAt": "2026-09-05T00:00:00.000Z",
-      "confirmedBy": null,
-      "confirmedAt": null
+      "confirmedBy": "user",
+      "confirmedAt": "2026-09-05T01:00:00.000Z"
     }
   ]
 }

@@ -86,7 +86,7 @@
 
 ## 5. Lesson 条目库（机器载体：`docs/main-agent-lessons.json`）
 
-> 2026-09-05：27 条已按 §2 全字段结构化入库 `docs/main-agent-lessons.json`（24 条已确认 + 025-027 三条 v3.6.0 复盘 proposed 待确认）。
+> 2026-09-05：27 条已按 §2 全字段结构化入库 `docs/main-agent-lessons.json`（**27/27 全 approved，无剩余 proposed**；025-027 为 v3.6.0 复盘，2026-09-05 用户确认）。
 > 本表为人类可读目录；**状态以 json 为准**。
 > 状态约定：`in-runbook`（要点已并入 runbook 正文）/ `approved`（用户或外部 AI 确认）/ `superseded`（已并入他条，机器消费跳过）/ `proposed`（主 agent 产出待确认）；均记 `confirmedBy`/`confirmedAt`。
 
@@ -116,9 +116,9 @@
 | L-2026-0904-022 | 跨工作区桥接：workspacePath 注入优先于默认 cwd | approved（2026-09-04 用户确认） |
 | L-2026-0904-023 | web-gemini 渠道问题分层排查（扩展↔bridge↔解析） | approved（2026-09-04 用户确认） |
 | L-2026-0904-024 | 版本号多源一致性（package/README/说明书/statusHandler） | approved（2026-09-04 用户确认） |
-| L-2026-0905-025 | E2E 真实链路校验是长链深层 bug 防线（v3.6.0 抓 3 真 bug） | proposed（待确认） |
-| L-2026-0905-026 | "缺证据打回→补证重提"三方闭环（证据型 complete） | proposed（待确认） |
-| L-2026-0905-027 | 热路径成批变更 + 受控重启纪律 | proposed（待确认） |
+| L-2026-0905-025 | E2E 真实链路校验是长链深层 bug 防线（v3.6.0 抓 3 真 bug） | approved（2026-09-05 用户确认） |
+| L-2026-0905-026 | "缺证据打回→补证重提"三方闭环（证据型 complete） | approved（2026-09-05 用户确认） |
+| L-2026-0905-027 | 热路径成批变更 + 受控重启纪律 | approved（2026-09-05 用户确认） |
 
 > **已确认（2026-09-04 13:14 UTC，用户）**：001-005→in-runbook；007→并入 002（superseded，证据并入 002）；011→并入 003（superseded，证据并入 003）；006/008/009/010/012/013/014/015/016→approved。见 §5.1。
 
@@ -126,4 +126,4 @@
 
 - **2026-09-04 13:14 UTC（confirmedBy=user，主对话）**：001-005 → `in-runbook`；006/008/009/010/012/013/014/015/016 → `approved`；007 → 并入 002、011 → 并入 003（均 `superseded`，supersededBy 已写，evidence 已并入目标条目）。lessons.json 已同步 `status`/`confirmedBy`/`confirmedAt`。
 - **2026-09-04 15:20 UTC（confirmedBy=user，主对话）**：L-2026-0904-017..024 八条 → `approved`。lessons.json 已同步 `status`/`confirmedBy`/`confirmedAt`；库内无剩余 proposed。
-- **2026-09-04（proposed，待确认）**：L-2026-0904-018..024（Stage B 语境能力 C-a~C-g，用户"按推荐执行"登记为 proposed，待逐条确认转 approved）。
+- **2026-09-05 01:00 UTC（confirmedBy=user，主对话）**：L-2026-0905-025..027（v3.6.0 复盘三 lesson）→ `approved`。库内 **27/27 全 approved，无剩余 proposed**。

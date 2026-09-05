@@ -221,6 +221,9 @@ window.__ModuleLoader__.load({
           autoReview: '自动审核', autoReviewing: '审核中…',
           extApprove: '外部通过', extReject: '外部打回', reopen: '重开',
           finalize: '一键收口', finalizing: '收口中…',
+        rollback: '回滚到上版基线', rollbacking: '回滚中…',
+        rollbackConfirm: '确认回滚？将 git reset 到迭代基线（非 git 工作区将给出降级提示）',
+        rollbackDone: '已回滚到基线', rollbackDegraded: '非 git 降级提示',
           enterExec: '进入执行阶段',
           parsePlanning: '解析并执行',
           webhookSave: '保存', webhookTest: '测试', notifyOn: '🔔 桌面通知',
@@ -384,6 +387,9 @@ window.__ModuleLoader__.load({
           autoReview: 'Auto Review', autoReviewing: 'Reviewing…',
           extApprove: 'Approve', extReject: 'Reject', reopen: 'Reopen',
           finalize: 'Finalize', finalizing: 'Finalizing…',
+        rollback: 'Rollback to base', rollbacking: 'Rolling back…',
+        rollbackConfirm: 'Confirm rollback? git reset to iteration base (non-git workspace will show degrade hint)',
+        rollbackDone: 'Rolled back to', rollbackDegraded: 'Non-git degrade',
           enterExec: 'Enter execution phase',
           parsePlanning: 'Parse & execute',
           webhookSave: 'Save', webhookTest: 'Test', notifyOn: '🔔 Notify',
@@ -1236,6 +1242,28 @@ window.__ModuleLoader__.load({
             if (data.wake && !data.wake.agentWoken) {
               setError('收口完成，但未能自动唤醒主 agent：' + (data.wake.reason || '未知原因'))
             }
+            refreshStepState()
+          } catch (e) { setError(String(e?.message || e)) }
+          finally { setStepBusy(false); setStepBusyAction('') }
+        }
+
+        // v3.7.0 P2 Step3: 回滚到上版基线（POST /steps/rollback；非 git 降级提示）
+        const rollbackToBase = async () => {
+          if (!exprId) return
+          if (!window.confirm(T.btn.rollbackConfirm)) return
+          setStepBusy(true); setError(''); setStepBusyAction('rollback')
+          try {
+            const resp = await fetch('/dsh-web-relay/steps/rollback', {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({ workspacePath, exprId, protocolVersion, repoPath: 'D:\\DSH' })
+            })
+            const data = await resp.json().catch(() => ({ ok: false, error: 'bad response' }))
+            if (!data.ok) {
+              setError(((data.degraded ? T.btn.rollbackDegraded + '：' : '') + (data.reason || data.error || 'rollback failed')))
+              return
+            }
+            setError(T.btn.rollbackDone + ' ' + String(data.base || '').slice(0, 12))
             refreshStepState()
           } catch (e) { setError(String(e?.message || e)) }
           finally { setStepBusy(false); setStepBusyAction('') }
@@ -2237,6 +2265,12 @@ window.__ModuleLoader__.load({
               h('div', { style: { marginTop: 8, display: 'flex', alignItems: 'center', gap: 8 } },
                 h('button', { onClick: finalizeTask, disabled: stepBusy, style: { ...btnStyle, padding: '6px 14px' } },
                   (stepBusy && stepBusyAction === 'finalize') ? T.btn.finalizing : T.btn.finalize)
+              ),
+              // v3.7.0 P2 Step3: 回滚到上版基线（二次确认；非 git 降级提示）
+              exprId && steps && steps.length > 0 && !finalSummary &&
+              h('div', { style: { marginTop: 6, display: 'flex', alignItems: 'center', gap: 8 } },
+                h('button', { onClick: rollbackToBase, disabled: stepBusy, className: 'dwr-ghost', style: { ...ghostPurple, padding: '4px 10px', fontSize: 12 } },
+                  (stepBusy && stepBusyAction === 'rollback') ? T.btn.rollbacking : T.btn.rollback)
               ),
               // v1.5 M4: 审核来源汇总（finalize 成功后的汇总文本）
               finalSummary && h('div', { style: { marginTop: 8 } },
