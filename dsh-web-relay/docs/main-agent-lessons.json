@@ -2,7 +2,7 @@
   "meta": {
     "schemaVersion": "0.1",
     "title": "dsh-web-relay 主 agent 语境能力 lesson 库（机器可读）",
-    "updatedAt": "2026-09-05T14:10:00.000Z",
+    "updatedAt": "2026-09-05T14:20:00.000Z",
     "carrierOf": "docs/main-agent-lesson-schema-v0.1.md",
     "statusConvention": "proposed（主 agent 产出）→ approved / in-runbook（用户或外部 AI 确认，记 confirmedBy/confirmedAt）；in-runbook=要点已并入 main-agent-runbook 正文；superseded=内容已并入他条（扩展值，机器消费时应跳过）",
     "confirmedAt": "2026-09-04T13:14:35.897Z",
@@ -524,6 +524,23 @@
         "L-2026-0903-002"
       ],
       "recordedAt": "2026-09-05T14:10:00.000Z"
+    },
+    {
+      "id": "L-2026-0905-032",
+      "title": "宿主重启编排须单步幂等小命令且把树杀作为回合最后动作（多步宿主操作命令易被运行时中断→半状态→用户手动兜底）",
+      "category": "engineering-action",
+      "layer": "L3",
+      "trigger": "由 agent 工具调用编排宿主重启（prepare → 停 watchdog → Start-ScheduledTask → 延迟树杀 host）等涉及杀进程/改守护的多步命令时",
+      "decision": "拆成可验证的小步：① 触发 /admin/prepare-restart 单独一步确认 ready；② watchdog 重启（Start-ScheduledTask）单独一步确认单实例；③ 延迟树杀作为回合最后动作（Start-Process 独立进程），随后立即结束回合让用户/后续回合验证；每步前先只读盘点当前 PID 状态，避免重复执行半状态命令；依赖 watchdog 单例锁 + 首检保证任何手动兜底安全",
+      "rationale": "v4.0 E2E 阶段多次「多步编排命令被运行时中断」（watchdog 已 kill 而 Start-ScheduledTask/树杀未执行）→ 宿主无人托管/未换代 → 用户手动启动 ≥3 次；watchdog 触发链本身可靠（日志实证 ~6 次自主拉起），不可靠的是 agent 单次长命令的原子性",
+      "evidence": "AUTO-ITERATION-ANALYSIS.md §七（重启账目：watchdog 自主 ~6 / 用户手动 ≥3）；宿主 PID 18008/18164 PPID=人工 launcher",
+      "confidence": "high",
+      "status": "approved",
+      "suggested": "in-runbook",
+      "crossRef": [
+        "L-2026-0905-028"
+      ],
+      "recordedAt": "2026-09-05T14:20:00.000Z"
     }
   ]
 }
