@@ -151,6 +151,11 @@ window.__ModuleLoader__.load({
         configReady: 'Gemini 已就绪',
         // v3.9 S4: watchdog/优雅停机准备状态提示（/health-check.preparing）
         preparingRestart: '优雅停机准备中（重启通道已就绪）',
+        // v4.1.0 (实验 V1): 宿主托管/重启续跑状态文案
+        bootIdLabel: 'boot:',
+        resumeCountLabel: '重启续接',
+        resumeActiveNote: '宿主已重启·自动续跑',
+        resumePausedNote: '重启续跑熔断·已跨重启',
         configNotReady: 'Gemini 未配置',
         copiedHint: '已复制，去网页 Ctrl+V',
         clipboardUnavailable: '剪贴板不可用，请手动复制预览区',
@@ -322,6 +327,11 @@ window.__ModuleLoader__.load({
         configReady: 'Gemini ready',
         // v3.9 S4: watchdog/graceful-restart readiness hint (/health-check.preparing)
         preparingRestart: 'Graceful restart preparing (watchdog channel ready)',
+        // v4.1.0 (exp V1): host-managed / cross-restart resume labels
+        bootIdLabel: 'boot:',
+        resumeCountLabel: 'resume',
+        resumeActiveNote: 'host restarted · auto-resumed',
+        resumePausedNote: 'resume circuit-broken ×',
         configNotReady: 'Gemini not configured',
         copiedHint: 'Copied — paste into the web AI (Ctrl+V)',
         clipboardUnavailable: 'Clipboard unavailable; copy the preview manually',
@@ -1786,6 +1796,8 @@ window.__ModuleLoader__.load({
             h('span', { style: { display: 'inline-flex', alignItems: 'center', gap: 4 } },
               h('span', { style: { width: 8, height: 8, borderRadius: 4, background: '#71717a' } }), 'gemini'),
             h('span', {}, T.configVersion + (health.version || '?')),
+            // v4.1.0 (实验 V1): bootId 短显（宿主进程标识，重启前后可对比）
+            h('span', { style: { color: '#71717a', fontFamily: 'monospace' } }, T.bootIdLabel + (health.bootId ? String(health.bootId).slice(-8) : '?')),
             // v3.9 S4: 优雅停机准备中状态灯（琥珀；watchdog 探测通道就绪提示）
             health.preparing && h('span', { style: { display: 'inline-flex', alignItems: 'center', gap: 4, color: '#fbbf24', fontWeight: 600 } },
               h('span', { style: { width: 8, height: 8, borderRadius: 4, background: '#fbbf24', animation: 'dwr-blink 1s infinite' } }), T.preparingRestart)
@@ -2295,7 +2307,14 @@ window.__ModuleLoader__.load({
                       ? h('span', { style: { color: '#93c5fd' } }, T.btn.rollbackBaseLabel + ': ' + String(stepState.rollbackBase || stepState.iterationBaseCommit).slice(0, 12))
                       : h('span', { style: { color: '#71717a' } }, T.btn.noRollbackBase),
                   (stepState && stepState.rolledBackAt) &&
-                    h('span', { style: { color: '#4ade80' } }, T.btn.rollbackHistory + ' ' + String(stepState.rollbackBase || '').slice(0, 12) + (stepState.rollbackSteps ? ' · ' + stepState.rollbackSteps + T.btn.rollbackStepsReset : ''))
+                    h('span', { style: { color: '#4ade80' } }, T.btn.rollbackHistory + ' ' + String(stepState.rollbackBase || '').slice(0, 12) + (stepState.rollbackSteps ? ' · ' + stepState.rollbackSteps + T.btn.rollbackStepsReset : '')),
+                  // v4.1.0 (实验 V1): 重启续跑状态（restartCount 跨重启续接次数 + 自动续跑/熔断提示）
+                  (stepState && stepState.restartCount > 0) &&
+                    h('span', { style: { display: 'inline-flex', alignItems: 'center', gap: 4, color: '#c084fc', fontWeight: 600 } },
+                      '↻ ' + T.resumeCountLabel + ' ' + stepState.restartCount +
+                      (stepState.status !== 'paused' ? ' · ' + T.resumeActiveNote : '')),
+                  (stepState && stepState.status === 'paused' && String(stepState.stopReason || '').includes('重启续跑熔断')) &&
+                    h('span', { style: { display: 'inline-flex', alignItems: 'center', gap: 4, color: '#f87171', fontWeight: 600 } }, '⛔ ' + T.resumePausedNote + ' ' + (stepState.restartCount || 0))
                 ),
                 h('div', { style: { display: 'flex', alignItems: 'center', gap: 8 } },
                   h('button', { onClick: rollbackToBase, disabled: stepBusy, className: 'dwr-ghost', style: { ...ghostPurple, padding: '4px 10px', fontSize: 12 } },
