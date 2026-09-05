@@ -2,7 +2,7 @@
   "meta": {
     "schemaVersion": "0.1",
     "title": "dsh-web-relay 主 agent 语境能力 lesson 库（机器可读）",
-    "updatedAt": "2026-09-05T02:00:00.000Z",
+    "updatedAt": "2026-09-05T13:30:00.000Z",
     "carrierOf": "docs/main-agent-lesson-schema-v0.1.md",
     "statusConvention": "proposed（主 agent 产出）→ approved / in-runbook（用户或外部 AI 确认，记 confirmedBy/confirmedAt）；in-runbook=要点已并入 main-agent-runbook 正文；superseded=内容已并入他条（扩展值，机器消费时应跳过）",
     "confirmedAt": "2026-09-04T13:14:35.897Z",
@@ -475,6 +475,23 @@
       "suggested": "in-runbook",
       "crossRef": [],
       "recordedAt": "2026-09-05T02:00:00.000Z"
+    },
+    {
+      "id": "L-2026-0905-029",
+      "title": "Windows 计划任务启动器 .cmd 必须纯 ASCII（cmd.exe 按 ANSI/GBK 解析，UTF-8 中文注释会变成乱码命令导致后续 set 不执行）",
+      "category": "tooling-trap",
+      "layer": "L3",
+      "trigger": "编写/修改供 Windows 计划任务或 cmd 直接执行的 .cmd/.bat 启动器，且内含注释时",
+      "decision": "批处理文件注释与文案一律 ASCII；需要说明性文字放同名 .md 或 watchdog 日志；避免中文 UTF-8 写入 .cmd（LF 或 CRLF 均可，但字节必须 ASCII）。改后必测：cmd /c call <launcher> 观察无 \"is not recognized\" 报错且环境变量/子进程参数正确",
+      "rationale": "v3.9.3 dsh-web-watchdog.cmd 中文注释（UTF-8）被 cmd.exe 按 GBK 解析出乱码命令（\",随后启动\" is not recognized），goto/set 流程被破坏，DSH_WEB_ARGS 未设置 → watchdog 拉起宿主丢失 --trusted-host；重写纯 ASCII 后 env 传播恢复（宿主命令日志含 trusted-host）",
+      "evidence": "C:\\Users\\Administrator\\dsh-web-watchdog.cmd（v3.9.3 ASCII 版）；watchdog 日志 13:25:51 宿主命令含 --trusted-host；commit 25bbadd",
+      "confidence": "high",
+      "status": "approved",
+      "suggested": "in-runbook",
+      "crossRef": [
+        "L-2026-0903-004"
+      ],
+      "recordedAt": "2026-09-05T13:30:00.000Z"
     }
   ]
 }
