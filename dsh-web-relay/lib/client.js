@@ -800,6 +800,18 @@ window.__ModuleLoader__.load({
           if (open) suppressAutoLoadRef.current = false
         }, [open])
 
+        // v4.2.0 (实验 V2): 重启续跑/熔断状态变更审计日志（console，不影响渲染）
+        useEffect(() => {
+          if (!stepState) return
+          const sc = stepState.restartCount || 0
+          if (sc > 0 && stepState.status !== 'paused') {
+            console.log('[dsh-web-relay] 重启续跑状态:', (stepState.exprId || 'expr'), 'restartCount=' + sc, 'status=' + stepState.status)
+          }
+          if (stepState.status === 'paused' && String(stepState.stopReason || '').includes('重启续跑熔断')) {
+            console.warn('[dsh-web-relay] 重启续跑熔断暂停:', String(stepState.stopReason || '').slice(0, 140))
+          }
+        }, [stepState && stepState.updatedAt, stepState && stepState.status, stepState && stepState.restartCount])
+
 
 
       // ---- v0.5.2 Step 2: rule-8 payload guardrail ----
