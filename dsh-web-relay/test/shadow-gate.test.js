@@ -4,7 +4,7 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { checkL1Gate, resolveRepoPath, shouldUseShadow, runShadowGC, executeRollbackBaseline, runL2ShadowGate, getGitHead } from '../lib/shadow-gate.js'
+import { checkL1Gate, resolveRepoPath, shouldUseShadow, runShadowGC, executeRollbackBaseline, runL2ShadowGate, getGitHead, gcScheduleMs } from '../lib/shadow-gate.js'
 
 const REPO = 'D:/DSH'
 const NON_REPO = 'D:/dsh relay test'
@@ -85,4 +85,29 @@ test('source 标记：rollback 端点与 GC 自动挂载（lib/index.js + client
   assert.ok(src.includes('Shadow GC 清理孤儿 worktree'))
   assert.ok(client.includes('rollbackToBase'))
   assert.ok(client.includes("'/dsh-web-relay/steps/rollback'"))
+})
+
+// ---- v3.8 Step2：GC 定时化（保留 finalize 触发语义）----
+test('gcScheduleMs：周期解析（默认 600000 / 0 与非法关闭 / 上限 24h）', () => {
+  assert.equal(gcScheduleMs(undefined), 0)          // 无 env → 0？不：index 侧传默认 600000；纯函数对 undefined 视为禁用
+  assert.equal(gcScheduleMs('600000'), 600000)
+  assert.equal(gcScheduleMs(600000), 600000)
+  assert.equal(gcScheduleMs('0'), 0)                // 显式 0 → 关闭定时（仅 finalize 触发）
+  assert.equal(gcScheduleMs(0), 0)
+  assert.equal(gcScheduleMs(-1), 0)                 // 负值 → 关闭
+  assert.equal(gcScheduleMs('abc'), 0)              // 非法 → 关闭
+  assert.equal(gcScheduleMs(null), 0)
+  assert.equal(gcScheduleMs(1000), 1000)
+  assert.equal(gcScheduleMs(25 * 60 * 60 * 1000), 24 * 60 * 60 * 1000) // 超上限截断 24h
+})
+
+test('source 标记：GC 定时化挂载（lib/index.js 定时器 + shadow-gate gcScheduleMs，v3.8 Step2）', () => {
+  const src = fs.readFileSync(new URL('../lib/index.js', import.meta.url), 'utf8')
+  const sg = fs.readFileSync(new URL('../lib/shadow-gate.js', import.meta.url), 'utf8')
+  assert.ok(src.includes('scheduledGcTimer'))
+  assert.ok(src.includes('DSH_RELAY_GC_MS'))
+  assert.ok(src.includes('DSH_RELAY_REPO_PATH'))
+  assert.ok(src.includes('定时 Shadow GC 已启用'))
+  assert.ok(sg.includes('gcScheduleMs'))
+  assert.ok(sg.includes('v3.8 Step2'))
 })

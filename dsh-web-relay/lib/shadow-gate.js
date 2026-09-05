@@ -146,3 +146,10 @@ export function getGitHead(repoPath) {
     return null
   }
 }
+
+// v3.8 Step2（GC 定时化）: 周期解析纯函数 —— 0/负/非法 → 0（禁用定时，仅保留 finalize 触发）；默认 600000ms；上限 24h
+export function gcScheduleMs(value) {
+  const n = Number(value)
+  if (!Number.isFinite(n) || n <= 0) return 0
+  return Math.min(Math.floor(n), 24 * 60 * 60 * 1000)
+}

@@ -20,7 +20,7 @@ import path from 'node:path'
 // V3.2: 多角色盲审 Swarm Prompt 模板与共识合成（lib/swarm-prompts.js 纯函数模块）
 import { buildRolePrompt, swarmConsensus, parseRoleReview, swarmEnablePolicy } from './swarm-prompts.js'
 import { auditBreakthrough } from './breakthrough-gate.js'
-import { checkL1Gate, runL2ShadowGate, shouldUseShadow, resolveRepoPath, runShadowGC, executeRollbackBaseline, getGitHead } from './shadow-gate.js'
+import { checkL1Gate, runL2ShadowGate, shouldUseShadow, resolveRepoPath, runShadowGC, executeRollbackBaseline, getGitHead, gcScheduleMs } from './shadow-gate.js'
 
 // v2.4-1: 插件版本（从 package.json 实时读取，避免硬编码漂移——原 statusHandler 曾长期报 1.3.0）
 export const PLUGIN_VERSION = (() => {
@@ -29,6 +29,8 @@ export const PLUGIN_VERSION = (() => {
     return (JSON.parse(raw).version) || '0.0.0'
   } catch (err) { return '0.0.0' }
 })()
+// v3.8 Step2（GC 定时化）: 进程级定时 GC 单例（防 apply 多次调用重复装表；finalize 触发语义保留）
+let scheduledGcTimer = null
 
 export const name = 'dsh-web-relay'
 // apiProxy must be a HARD inject (like dsh-side-window): ctx.get('apiProxy')
@@ -3421,4 +3423,26 @@ export function apply(ctx) {
   ctx.effect(() => webServer.register({ kind: 'exact', path: '/dsh-web-relay/steps/finalize', handler: finalizeHandler }), 'dsh-web-relay: finalize route')
   ctx.effect(() => webServer.register({ kind: 'exact', path: '/dsh-web-relay/steps/rollback', handler: rollbackHandler }), 'dsh-web-relay/steps/rollback')
   ctx.effect(() => webServer.register({ kind: 'exact', path: '/dsh-web-relay/steps/restructure', handler: restructureHandler }), 'dsh-web-relay/steps/restructure')
+
+  // v3.8 Step2（GC 定时化）: 保留 finalize 触发的语义之上，增加进程内周期兜底。
+  // 环境开关：DSH_RELAY_REPO_PATH 指定目标仓库（git）；DSH_RELAY_GC_MS 周期毫秒（默认 600000=10min；0/非法=关闭定时，仅保留 finalize 触发）。
+  // 幂等：仅第一个 apply() 安装（进程级单例），unref 防挂住宿主退出。
+  if (!scheduledGcTimer) {
+    const gcMs = gcScheduleMs(process.env.DSH_RELAY_GC_MS || 600000)
+    const gcRepo = (typeof process.env.DSH_RELAY_REPO_PATH === 'string' && process.env.DSH_RELAY_REPO_PATH) ? process.env.DSH_RELAY_REPO_PATH : null
+    if (gcMs > 0 && gcRepo) {
+      scheduledGcTimer = setInterval(() => {
+        try {
+          const gc = runShadowGC(gcRepo)
+          if (!gc.ok) console.warn('[dsh-web-relay] 定时 Shadow GC 失败:', gc.error)
+          else if (gc.pruned > 0) console.warn(`[dsh-web-relay] 定时 Shadow GC 清理孤儿 worktree：${gc.pruned} 个（active=${gc.active}/${gc.max}）`)
+        } catch (err) { console.warn('[dsh-web-relay] 定时 Shadow GC 异常:', String(err?.message || err)) }
+      }, gcMs)
+      if (typeof scheduledGcTimer.unref === 'function') scheduledGcTimer.unref()
+      console.warn(`[dsh-web-relay] 定时 Shadow GC 已启用：周期 ${gcMs}ms（repo=${gcRepo}；DSH_RELAY_GC_MS=0 可关闭）`)
+    } else {
+      // 无 env repoPath 或周期=0：定时 GC 停用（finalize 内联 GC 不受影响）
+      console.warn('[dsh-web-relay] 定时 Shadow GC 未启用（需 DSH_RELAY_REPO_PATH 指定 git 仓库，且 DSH_RELAY_GC_MS>0）；finalize 内联 GC 仍生效')
+    }
+  }
 }
