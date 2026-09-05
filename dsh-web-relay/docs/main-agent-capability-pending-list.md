@@ -97,3 +97,7 @@
 | §3 C-a~C-j 语境候选 | 待用户确认 | **已覆盖** | C-a/C-b/C-c/C-d/C-f/C-g → 与 lessons 017-032 / runbook 家族重合（多子代理并行=实验 V1-V3 实证、版本断言=lesson 003/015 族、git 原子交付=lesson 015、实测数据=analysis、渠道分层=OPS/通道文档、版本多源=lesson 029/runbook §4）；C-e 跨工作区桥接 → resume-scan 候选基准（DSH_RELAY_WORKSPACE）机制化；C-h/C-i/C-j 已标注覆盖 |
 
 **剩余未决（9/5）**：① lesson Top-K 注入（schema §4 愿景）② 跨宿主「自动唤醒续跑」真实实测 ③ AutoIteration 声明解析兜底（lesson 031）④ 宿主重启编排子命令化（lesson 032）⑤ registry lastVerified 自动回写。
+
+### 6. 未决闭环（2026-09-05 晚，v4.4.0，expr-2026-09-05_14-50-07 S1-S5 external approved）
+
+①②③④⑤ 全部落地（详见 master-ledger §10）：U5 verify --update / U3 autoiter-decl.js / U1 lessons-inject.js / U4 watchdog restart-now / U2 跨宿主续跑实测（检测/计数/留痕/唤醒尝试/降级全链实证）。registry 14 条全绿（lastVerified=2026-09-05）；全量 167/167；tag v4.4.0。**能力持久化未决清单清零**；后续新未决（如有）经每次能力核实/复盘登记。

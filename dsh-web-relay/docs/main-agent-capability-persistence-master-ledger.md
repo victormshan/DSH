@@ -129,3 +129,15 @@
 | 测试基线 | — | 154/154（23 文件） | 全量回归持续绿 |
 
 **未决更新**：§8 未决 2（V3 gap P1-P4）已于 v3.5-v3.8 全部落地（案例库闭环/Swarm/突破度门禁/Schema 保全）→ 改为已闭环；新增未决：① lesson Top-K 注入（原未决 1）仍开放；② 跨宿主「自动唤醒续跑」真实实测（expr 带 sessionId + watchdog 重启 + wakeMainAgent）；③ AutoIteration 声明解析兜底（lesson 031 建议）；④ 宿主重启编排子命令化（lesson 032 建议）；⑤ registry lastVerified 自动回写。
+
+### §10 未决闭环更新（2026-09-05 晚，expr-2026-09-05_14-50-07，v4.4.0）
+
+| 原未决 | 落地 | 证据 |
+|---|---|---|
+| ① lesson Top-K 注入 | ✅ v4.4.0 lib/lessons-inject.js（bigram 打分 Top-5 注入 wake 装配；lessons-inject.test 6 例） | S3 external approved |
+| ② 跨宿主自动唤醒续跑实测 | ✅ v4.4.0 restart-now + bootResumeScan 实测：检测/计数/留痕/唤醒尝试/降级全链（探针 sessionId 降级验证；真实会话演示可选） | S5 external approved；watchdog 日志 14:57-14:58 |
+| ③ AutoIteration 声明解析兜底 | ✅ v4.4.0 lib/autoiter-decl.js（JSON 序无关 + 引号容忍叙述/中文；auto-iter-decl.test 6 例） | S2 external approved |
+| ④ 宿主重启编排子命令化 | ✅ v4.4.0 watchdog restart-now 原子子命令（prepare→树杀→首检拉起；DRYRUN 演练 + 真实执行） | S4/S5 external approved |
+| ⑤ registry lastVerified 自动回写 | ✅ v4.4.0 verify-capabilities.mjs --update（14 条 → 当日） | S1 external approved |
+
+registry 14 条全绿（--update 已回写 lastVerified=2026-09-05）；lessons 32 条；全量测试 167/167；tag v4.4.0（9c34487）。能力持久化未决项已清零。
