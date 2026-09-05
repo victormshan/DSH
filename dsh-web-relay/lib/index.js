@@ -1651,14 +1651,25 @@ export function apply(ctx) {
   //   restartCount ≥ RESUME_MAX_RESTARTS → paused 熔断（防死循环）。
   // rejectStreak/iterationBaseCommit 不动（跨重启保持——防绕过 3 连打回熔断与回滚基线）。
   const RESUME_MAX_RESTARTS = 2
-  async function bootResumeScan() {
-    const base = process.env.DSH_RELAY_WORKSPACE || (sandboxPolicy && sandboxPolicy.workspaceRoot) || process.cwd()
+  // 扫描候选基准：显式 env > sandbox workspaceRoot > cwd（v4.0-fix：宿主 cwd 常非业务 workspace，
+  // 需 DSH_RELAY_WORKSPACE/DSH_WORKSPACE 或 launcher 注入，否则扫描落空）
+  function resumeScanBases() {
+    const cands = []
+    for (const v of [process.env.DSH_RELAY_WORKSPACE, process.env.DSH_WORKSPACE]) {
+      if (v && String(v).trim() && !cands.includes(String(v).trim())) cands.push(String(v).trim())
+    }
+    if (sandboxPolicy && sandboxPolicy.workspaceRoot) cands.push(sandboxPolicy.workspaceRoot)
+    cands.push(process.cwd())
+    return cands
+  }
+  async function scanBase(base) {
     let entries = []
     try {
       const dir = await fs.resolve(EXPERIMENTS_DIR, { cwd: base })
       entries = await fs.listDir(dir)
-    } catch (err) { return { checked: 0, resumed: [], paused: [] } }
+    } catch (err) { return null }
     const files = entries.filter((e) => e.type === 'file' && /^expr-.+\.steps\.json$/.test(e.name))
+    if (files.length === 0) return null
     const resumed = []
     const paused = []
     for (const f of files) {
@@ -1694,10 +1705,23 @@ export function apply(ctx) {
         }
       } catch (err) { /* skip unreadable expr */ }
     }
-    if (files.length > 0 || resumed.length > 0 || paused.length > 0) {
-      console.warn(`[dsh-web-relay] 重启续跑扫描完成：检查 ${files.length} 个 expr｜续跑 ${resumed.length}（${resumed.map((r) => r.exprId).join(',')}）｜熔断 ${paused.length}（${paused.join(',')}）｜bootId=${CURRENT_BOOT_ID}`)
+    return { base, checked: files.length, resumed, paused }
+  }
+  async function bootResumeScan() {
+    const results = []
+    for (const base of resumeScanBases()) {
+      const r = await scanBase(base).catch(() => null)
+      if (r) results.push(r)
     }
-    return { checked: files.length, resumed, paused }
+    const resumed = results.flatMap((r) => r.resumed)
+    const paused = results.flatMap((r) => r.paused)
+    const checked = results.reduce((n, r) => n + r.checked, 0)
+    if (checked > 0 || resumed.length > 0 || paused.length > 0) {
+      console.warn(`[dsh-web-relay] 重启续跑扫描完成：${results.map((r) => `${r.base}(${r.checked})`).join('；')}｜续跑 ${resumed.length}（${resumed.map((x) => x.exprId).join(',')}）｜熔断 ${paused.length}（${paused.join(',')}）｜bootId=${CURRENT_BOOT_ID}`)
+    } else {
+      console.warn(`[dsh-web-relay] 重启续跑扫描：候选基准均无 expr steps（${resumeScanBases().join(' | ')}）——若业务 workspace 不在其中，请设 DSH_RELAY_WORKSPACE 后重启`)
+    }
+    return { checked, resumed, paused }
   }
 
   // ---------- v1.6: 双版本协议 payload（context / protocol 端点共用） ----------
@@ -3532,6 +3556,20 @@ export function apply(ctx) {
     readAndRun()
   }
 
+  // v4.0-fix: 手动触发续跑扫描（运维/E2E 用；不传 workspacePath 则扫候选基准）
+  const adminResumeScanHandler = async (req, res) => {
+    try {
+      if (req.method === 'OPTIONS') return res.writeHead(204, CORS).end()
+      const payload = JSON.parse((await readBody(req)) || '{}')
+      const result = (payload && payload.workspacePath)
+        ? (await scanBase(baseOf(payload.workspacePath))) || { base: baseOf(payload.workspacePath), checked: 0, resumed: [], paused: [] }
+        : await bootResumeScan()
+      json(res, 200, { ok: true, bootId: CURRENT_BOOT_ID, ...result })
+    } catch (err) {
+      json(res, 500, { ok: false, error: String(err?.message || err) })
+    }
+  }
+
   const protocolHandler = async (req, res) => {
     if (req.method === 'OPTIONS') return res.writeHead(204, CORS).end()
     json(res, 200, {
@@ -3575,6 +3613,7 @@ export function apply(ctx) {
   ctx.effect(() => webServer.register({ kind: 'exact', path: '/dsh-web-relay/steps/rollback', handler: rollbackHandler }), 'dsh-web-relay/steps/rollback')
   ctx.effect(() => webServer.register({ kind: 'exact', path: '/dsh-web-relay/steps/restructure', handler: restructureHandler }), 'dsh-web-relay/steps/restructure')
   ctx.effect(() => webServer.register({ kind: 'exact', path: '/dsh-web-relay/admin/prepare-restart', handler: adminPrepareHandler }), 'dsh-web-relay/admin/prepare-restart')
+  ctx.effect(() => webServer.register({ kind: 'exact', path: '/dsh-web-relay/admin/resume-scan', handler: adminResumeScanHandler }), 'dsh-web-relay/admin/resume-scan')
 
   // v4.0 Step2/3: 宿主启动续跑扫描（重启检测 → 唤醒/熔断；异步执行不阻断路由注册）
   bootResumeScan().catch((e) => console.warn('[dsh-web-relay] 续跑扫描异常:', String((e && e.message) || e)))

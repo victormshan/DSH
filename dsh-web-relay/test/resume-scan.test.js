@@ -46,4 +46,8 @@ test('source 标记：lib/index.js 接线（v4.0 重启续跑）', () => {
   assert.ok(src.includes('wakeMainAgent({ sessionId: st.sessionId'))
   assert.ok(src.includes('resumeHandoff(st, exprId)'))
   assert.ok(src.includes('sessionId: sessionId || null'))           // askHandler 创建落盘 sessionId
+  assert.ok(src.includes('adminResumeScanHandler'))                  // 手动触发端点
+  assert.ok(src.includes("'/dsh-web-relay/admin/resume-scan'"))
+  assert.ok(src.includes('resumeScanBases'))                         // 候选基准（env > sandbox > cwd）
+  assert.ok(src.includes('DSH_RELAY_WORKSPACE'))
 })
