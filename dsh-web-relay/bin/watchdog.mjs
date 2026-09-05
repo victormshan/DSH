@@ -30,6 +30,7 @@ export const CFG = {
   webArgs: (process.env.DSH_WEB_ARGS || 'web').trim(),
   webCmd: (process.env.DSH_WEB_CMD || '').trim(),
   logFile: process.env.DSH_WEB_LOG || path.join(__dirname, 'watchdog-host.log'),
+  lockFile: process.env.DSH_WEB_LOCK || path.join(__dirname, '.watchdog.lock'),
   dryRun: process.env.DSH_WEB_DRYRUN === '1'   // 模拟模式：只打日志不 kill/spawn（验收模拟用，防误杀真实宿主）
 }
 const healthUrl = () => `http://127.0.0.1:${CFG.port}/dsh-web-relay/health-check`
@@ -105,6 +106,30 @@ export function childEnv() {
     }
   }
   return env
+}
+
+// ---------- 单例锁（v3.9.2：防手动调试与计划任务双开竞态）----------
+export function parseLock(text) {
+  const n = Number(String(text || '').trim())
+  return Number.isInteger(n) && n > 0 ? n : null
+}
+export function pidAlive(pid) {
+  try { process.kill(pid, 0); return true } catch (e) { return false }
+}
+export function acquireLock(logFn = log) {
+  try {
+    const existing = parseLock(fs.existsSync(CFG.lockFile) ? fs.readFileSync(CFG.lockFile, 'utf8') : '')
+    if (existing && pidAlive(existing)) {
+      logFn(`已有 watchdog 实例在运行（PID=${existing}，锁 ${CFG.lockFile}），本实例退出`)
+      return false
+    }
+    fs.writeFileSync(CFG.lockFile, String(process.pid))
+    process.on('exit', () => { try { fs.unlinkSync(CFG.lockFile) } catch {} })
+    return true
+  } catch (err) {
+    logFn(`单例锁获取失败（${err && err.message}），继续运行（不阻断）`)
+    return true
+  }
 }
 
 // ---------- 运行时 ----------
@@ -198,12 +223,17 @@ async function tick() {
 // 仅作为 CLI 主入口运行时启动（被测试 import 时不执行）
 const isMain = process.argv[1] && import.meta.url === new URL(`file://${process.argv[1].replace(/\\/g, '/')}`).href
 if (isMain) {
+  if (!acquireLock()) process.exit(0) // 单例锁：已有实例则退出
   log(`开始守护 dsh web @127.0.0.1:${CFG.port}（每 ${CFG.checkMs / 1000}s 探测，miss ≥ ${CFG.missN} 重启；防风暴 ${CFG.maxRestarts} 次/${CFG.windowMs / 60000}min）`)
   log(`宿主命令：${CFG.nodeExe} ${hostArgv().join(' ')}`)
   ;(async () => {
+    // v3.9.2: 启动首检——未响应立即拉起（不等 miss×N 轮询，缩短开机/恢复空窗）
     const r = await probe()
     if (r.alive) log('宿主在线：进入监控模式')
-    else { missCount = 1; log(`宿主未响应：${r.error || '无响应'}（miss 1/${CFG.missN}）`) }
+    else {
+      log(`启动首检未响应（${r.error || '无响应'}）→ 立即拉起（不等 miss ${CFG.missN} 轮询）`)
+      doRestart()
+    }
     setInterval(tick, CFG.checkMs)
   })()
 }

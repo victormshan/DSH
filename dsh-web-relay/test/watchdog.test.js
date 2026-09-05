@@ -2,7 +2,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
-import { stormGate, classifyProbe, decideRestart, parseCommand, hostArgv, attemptRestart, parseRegValue, childEnv, CFG } from '../bin/watchdog.mjs'
+import { stormGate, classifyProbe, decideRestart, parseCommand, hostArgv, attemptRestart, parseRegValue, childEnv, parseLock, CFG } from '../bin/watchdog.mjs'
 
 test('classifyProbe：HTTP200 且 body.ok===true 才算存活', () => {
   assert.equal(classifyProbe({ httpOk: true, okFlag: true }), true)
@@ -95,4 +95,24 @@ test('childEnv：进程 env 已有值时不覆盖；缺失时返回含注册表�
   assert.ok(env.GEMINI_API_KEY === undefined || env.GEMINI_API_KEY.length > 0)
   // 不覆盖语义：模拟已有值 → childEnv 结果应保留原值（process.env 有则不动）
   if (process.env.GEMINI_API_KEY) assert.equal(env.GEMINI_API_KEY, process.env.GEMINI_API_KEY)
+})
+
+// ---- v3.9.2：单例锁 + 启动首检 ----
+test('parseLock：锁文件解析（PID 整数；空/非法 → null）', () => {
+  assert.equal(parseLock('12345'), 12345)
+  assert.equal(parseLock(' 12345 \n'), 12345)
+  assert.equal(parseLock(''), null)
+  assert.equal(parseLock('abc'), null)
+  assert.equal(parseLock('0'), null)
+  assert.equal(parseLock('-1'), null)
+})
+
+test('source 标记：启动首检立即拉起 + 单例锁（bin/watchdog.mjs v3.9.2）', () => {
+  const src = fs.readFileSync(new URL('../bin/watchdog.mjs', import.meta.url), 'utf8')
+  assert.ok(src.includes('启动首检未响应'))       // 首检未响应 → 立即拉起
+  assert.ok(src.includes('立即拉起（不等 miss'))
+  assert.ok(src.includes('acquireLock'))
+  assert.ok(src.includes('已有 watchdog 实例在运行'))
+  assert.ok(src.includes('process.exit(0)'))
+  assert.ok(src.includes('lockFile'))
 })
