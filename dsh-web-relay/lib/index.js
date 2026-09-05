@@ -23,6 +23,8 @@ import { auditBreakthrough } from './breakthrough-gate.js'
 import { checkL1Gate, runL2ShadowGate, shouldUseShadow, resolveRepoPath, runShadowGC, executeRollbackBaseline, getGitHead, gcScheduleMs } from './shadow-gate.js'
 // v3.8 Step3: 回滚后步骤状态复位策略（纯函数，见 lib/rollback-state.js）
 import { applyRollbackReset, markRollbackDegraded } from './rollback-state.js'
+// v4.0 Step1-3: 宿主重启续跑（纯函数决策，见 lib/resume-scan.js）
+import { isExprInterrupted, resumeAction, resumeHandoff } from './resume-scan.js'
 
 // v2.4-1: 插件版本（从 package.json 实时读取，避免硬编码漂移——原 statusHandler 曾长期报 1.3.0）
 export const PLUGIN_VERSION = (() => {
@@ -36,6 +38,9 @@ let scheduledGcTimer = null
 // v3.9 S2（优雅停机）: 进程级准备状态——/admin/prepare-restart 触发后停新任务领取；
 // 状态仅存进程内（宿主重启后自然复位为可接受新任务），无需落盘
 let prepareRestartState = null
+// v4.0 Step1（重启续跑）: 宿主进程 bootId（每次宿主启动唯一）。writeStepState 写盘打戳；
+// 重启后 bootId 不同 → 可识别跨宿主中断的 expr（CURRENT_BOOT_ID 每进程恒定）
+const CURRENT_BOOT_ID = `${Date.now().toString(36)}-${randomUUID().slice(0, 8)}`
 
 export const name = 'dsh-web-relay'
 // apiProxy must be a HARD inject (like dsh-side-window): ctx.get('apiProxy')
@@ -1399,7 +1404,7 @@ export function apply(ctx) {
   }
 
   // ---------- record persistence ----------
-  async function saveRecord({ base, safePolicy, prompt, answer, channel, providerLabel, fallbackReason, requestProvider, actions, results, selectedIndices, status, stamp, steps, intent }) {
+  async function saveRecord({ base, safePolicy, prompt, answer, channel, providerLabel, fallbackReason, requestProvider, actions, results, selectedIndices, status, stamp, steps, intent, sessionId }) {
     const stampFinal = stamp || new Date().toISOString().replace(/[:.]/g, '-').replace('T', '_').slice(0, 19)
     const id = `expr-${stampFinal}`
     const relPath = `${EXPERIMENTS_DIR}/dsh-web-relay-${stampFinal}.md`
@@ -1419,6 +1424,8 @@ export function apply(ctx) {
       `fallbackReason: ${fallbackReason || '(无)'}`,
       `status: ${status}`,
       `created: ${new Date().toISOString()}`,
+      // v4.0 Step1: 记录会话 ID（重启续跑反查原会话用）
+      ...(sessionId ? [`sessionId: ${sessionId}`] : []),
       '---',
       '',
       '## Prompt',
@@ -1463,9 +1470,13 @@ export function apply(ctx) {
           rolledBackAt: data.rolledBackAt || null,
           rollbackBase: data.rollbackBase || null,
           rollbackSteps: data.rollbackSteps || 0,
-          rollbackDegraded: data.rollbackDegraded || null }
+          rollbackDegraded: data.rollbackDegraded || null,
+          // v4.0 Step1（重启续跑）: sessionId/bootId/restartCount 纳入读白名单
+          sessionId: data.sessionId || null,
+          bootId: data.bootId || null,
+          restartCount: data.restartCount || 0 }
       } catch (err) { /* no state yet */ }
-      return { exprId, steps: [], currentStep: null, status: 'open', phase: 'planning', architectNotes: null, contextRequests: [], autoReview: false, stopReason: null, stoppedAt: null, finalized: false, finalizedAt: null, finalSummary: null, protocolVersion: 'v1.5', activeSteps: [], iterations: 1, currentIteration: 1, finalAcceptance: null, autoDecision: false, rejectStreak: 0, incrementalStreak: 0, iterationBaseCommit: null, rolledBackAt: null, rollbackBase: null, rollbackSteps: 0, rollbackDegraded: null }
+      return { exprId, steps: [], currentStep: null, status: 'open', phase: 'planning', architectNotes: null, contextRequests: [], autoReview: false, stopReason: null, stoppedAt: null, finalized: false, finalizedAt: null, finalSummary: null, protocolVersion: 'v1.5', activeSteps: [], iterations: 1, currentIteration: 1, finalAcceptance: null, autoDecision: false, rejectStreak: 0, incrementalStreak: 0, iterationBaseCommit: null, rolledBackAt: null, rollbackBase: null, rollbackSteps: 0, rollbackDegraded: null, sessionId: null, bootId: null, restartCount: 0 }
     }
 
     async function writeStepState(base, exprId, state, safePolicy) {
@@ -1500,6 +1511,10 @@ export function apply(ctx) {
           rollbackBase: state.rollbackBase || null,
           rollbackSteps: state.rollbackSteps || 0,
           rollbackDegraded: state.rollbackDegraded || null,
+          // v4.0 Step1（重启续跑）: sessionId 透传；bootId 打当前宿主戳（重启检测依据）；restartCount 透传
+          sessionId: state.sessionId || null,
+          bootId: CURRENT_BOOT_ID,
+          restartCount: state.restartCount || 0,
         updatedAt: new Date().toISOString()
       }
       await fs.writeText(target, JSON.stringify(payload, null, 2), undefined, undefined, safePolicy)
@@ -1629,6 +1644,62 @@ export function apply(ctx) {
     }
   }
 
+  // ---------- v4.0 Step2/3: 宿主启动续跑扫描（cross-restart resume） ----------
+  // 宿主每次启动执行一次（apply 尾）：扫描 web-relay/experiments/*.steps.json，
+  // 对「跨 bootId 中断」的 expr（executing/review/activeSteps 非空 且 bootId ≠ 当前宿主）：
+  //   resume → trace 留痕 + wakeMainAgent(sessionId) 自动唤醒原会话续跑（无 sessionId → 降级留痕）；
+  //   restartCount ≥ RESUME_MAX_RESTARTS → paused 熔断（防死循环）。
+  // rejectStreak/iterationBaseCommit 不动（跨重启保持——防绕过 3 连打回熔断与回滚基线）。
+  const RESUME_MAX_RESTARTS = 2
+  async function bootResumeScan() {
+    const base = process.env.DSH_RELAY_WORKSPACE || (sandboxPolicy && sandboxPolicy.workspaceRoot) || process.cwd()
+    let entries = []
+    try {
+      const dir = await fs.resolve(EXPERIMENTS_DIR, { cwd: base })
+      entries = await fs.listDir(dir)
+    } catch (err) { return { checked: 0, resumed: [], paused: [] } }
+    const files = entries.filter((e) => e.type === 'file' && /^expr-.+\.steps\.json$/.test(e.name))
+    const resumed = []
+    const paused = []
+    for (const f of files) {
+      const exprId = f.name.replace(/\.steps\.json$/, '')
+      try {
+        const st = await readStepState(base, exprId)
+        const dec = resumeAction(st, CURRENT_BOOT_ID, { maxRestarts: RESUME_MAX_RESTARTS })
+        if (dec.action === 'none') continue
+        st.restartCount = dec.restartCount
+        const sf = safePolicyFor(base)
+        if (dec.action === 'pause') {
+          st.status = 'paused'
+          st.stopReason = `宿主重启续跑熔断：同一任务已跨重启续接 ${dec.restartCount} 次（≥${RESUME_MAX_RESTARTS}），等待用户介入`
+          st.stoppedAt = new Date().toISOString()
+          await writeStepState(base, exprId, st, sf)
+          await appendTrace({ base, safePolicy: sf, exprId, entries: [traceEntry('system', st.stopReason)] }).catch(() => {})
+          paused.push(exprId)
+          console.warn(`[dsh-web-relay] 重启续跑熔断：${exprId}（restartCount=${dec.restartCount}）→ paused`)
+        } else {
+          await writeStepState(base, exprId, st, sf)
+          const step = Array.isArray(st.steps) ? st.steps.find((s) => s.status === 'executing' || s.status === 'review') : null
+          await appendTrace({
+            base, safePolicy: sf, exprId,
+            entries: [traceEntry('system', `宿主重启续跑：检测到跨 bootId 中断（restartCount=${dec.restartCount}，断点 ${st.status}${step ? `/Step ${step.id}` : ''}），尝试自动唤醒${st.sessionId ? '' : '失败（无 sessionId，降级为人工续跑）'}`)]
+          }).catch(() => {})
+          resumed.push({ exprId, step: step ? String(step.id) : null, status: st.status, sessionId: st.sessionId || null })
+          if (st.sessionId) {
+            const w = await wakeMainAgent({ sessionId: st.sessionId, handoffText: resumeHandoff(st, exprId) }).catch(() => ({ agentWoken: false, reason: 'wake 异常' }))
+            console.warn(`[dsh-web-relay] 重启续跑唤醒 ${exprId} → ${w.agentWoken ? '已唤醒（会话已排入续跑 prompt）' : '失败: ' + (w.reason || 'unknown')}`)
+          } else {
+            console.warn(`[dsh-web-relay] 重启续跑 ${exprId}：无 sessionId，跳过唤醒（trace 已留痕，等待用户「继续」）`)
+          }
+        }
+      } catch (err) { /* skip unreadable expr */ }
+    }
+    if (files.length > 0 || resumed.length > 0 || paused.length > 0) {
+      console.warn(`[dsh-web-relay] 重启续跑扫描完成：检查 ${files.length} 个 expr｜续跑 ${resumed.length}（${resumed.map((r) => r.exprId).join(',')}）｜熔断 ${paused.length}（${paused.join(',')}）｜bootId=${CURRENT_BOOT_ID}`)
+    }
+    return { checked: files.length, resumed, paused }
+  }
+
   // ---------- v1.6: 双版本协议 payload（context / protocol 端点共用） ----------
   // 顶层 protocol / skill 保持 v1.5（向前兼容）；protocolV15 / protocolV16 各自携带
   // { version, text, skill }，其中 text 为完整协议（v1.5 线性 + v1.6 并发条目）。
@@ -1697,6 +1768,8 @@ export function apply(ctx) {
     json(res, 200, {
       ok: true,
       version: PLUGIN_VERSION,
+      // v4.0 Step1: 宿主 bootId（重启检测/续跑扫描标识；watchdog 与面板可读）
+      bootId: CURRENT_BOOT_ID,
       // v3.9 S2: 优雅停机准备状态（watchdog / 面板可读：preparing=true 表示准备中）
       preparing: Boolean(prepareRestartState),
       preparedAt: prepareRestartState ? prepareRestartState.at : null,
@@ -1874,6 +1947,7 @@ export function apply(ctx) {
       const { id, relPath, fileTarget } = await saveRecord({
         base, safePolicy, prompt, answer, channel: askChannel,
         providerLabel, fallbackReason, requestProvider,
+        sessionId: sessionId || null,
         actions: [], results: [], selectedIndices: [], status: 'pending', intent: payload && payload.intent
       })
       // v0.5: seed the three-party trace (用户 prompt → 外部AI answer).
@@ -1913,6 +1987,7 @@ export function apply(ctx) {
             const ai = extractAutoIterDecl(`${prompt}\n${answer}`)
             await writeStepState(base, id, {
               exprId: id,
+              sessionId: sessionId || null, // v4.0 Step1: 落盘会话 ID（重启续跑唤醒用）
               currentStep: null,
               status: 'open',
                 phase,
@@ -2256,6 +2331,7 @@ export function apply(ctx) {
         base, safePolicy, prompt, answer: text,
         channel: 'manual',
         actions, results,
+        sessionId: payload && payload.sessionId || null,
         selectedIndices: selected.map((a) => a.index),
         status,
         stamp
@@ -2272,7 +2348,7 @@ export function apply(ctx) {
           // P3(v3.5.0): Architect 突破度门禁（非阻断 warn）——初始计划版本级审计，streak 落盘
           const btAudit0 = auditBreakthrough(steps, 0)
           if (btAudit0.warn) console.warn('[dsh-web-relay] ' + btAudit0.warn)
-          try { stepState = await writeStepState(base, id, { exprId: id, steps, currentStep: null, status: 'open', autoReview: payload.autoReview === true, protocolVersion, iterations: ai.iterations, currentIteration: 1, finalAcceptance: ai.finalAcceptance, autoDecision: ai.autoDecision, rejectStreak: 0, incrementalStreak: btAudit0.streak }, safePolicy) } catch (err) { stepState = null }
+          try { stepState = await writeStepState(base, id, { exprId: id, sessionId: payload.sessionId || null, steps, currentStep: null, status: 'open', autoReview: payload.autoReview === true, protocolVersion, iterations: ai.iterations, currentIteration: 1, finalAcceptance: ai.finalAcceptance, autoDecision: ai.autoDecision, rejectStreak: 0, incrementalStreak: btAudit0.streak }, safePolicy) } catch (err) { stepState = null }
         }
 
       // v0.5: write the three-party trace (用户 prompt → 外部AI 回答 → 主 agent 唤醒消息).
@@ -3499,6 +3575,9 @@ export function apply(ctx) {
   ctx.effect(() => webServer.register({ kind: 'exact', path: '/dsh-web-relay/steps/rollback', handler: rollbackHandler }), 'dsh-web-relay/steps/rollback')
   ctx.effect(() => webServer.register({ kind: 'exact', path: '/dsh-web-relay/steps/restructure', handler: restructureHandler }), 'dsh-web-relay/steps/restructure')
   ctx.effect(() => webServer.register({ kind: 'exact', path: '/dsh-web-relay/admin/prepare-restart', handler: adminPrepareHandler }), 'dsh-web-relay/admin/prepare-restart')
+
+  // v4.0 Step2/3: 宿主启动续跑扫描（重启检测 → 唤醒/熔断；异步执行不阻断路由注册）
+  bootResumeScan().catch((e) => console.warn('[dsh-web-relay] 续跑扫描异常:', String((e && e.message) || e)))
 
   // v3.8 Step2（GC 定时化）: 保留 finalize 触发的语义之上，增加进程内周期兜底。
   // 环境开关：DSH_RELAY_REPO_PATH 指定目标仓库（git）；DSH_RELAY_GC_MS 周期毫秒（默认 600000=10min；0/非法=关闭定时，仅保留 finalize 触发）。
