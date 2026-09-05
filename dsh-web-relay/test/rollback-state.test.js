@@ -102,3 +102,22 @@ test('source 标记：面板回滚状态展示增强（lib/client.js v3.8 Step4�
   assert.ok(client.includes('data.resetInfo.stepsReset'))
   assert.ok(client.includes('data.marked')) // 降级落盘标记提示
 })
+
+test('source 标记：基线/回滚字段纳入 read/writeStepState 白名单（v3.8 Step3-fix，修 v3.7.1 持久化洞）', () => {
+  const src = fs.readFileSync(new URL('../lib/index.js', import.meta.url), 'utf8')
+  const readIdx = src.indexOf('async function readStepState')
+  const writeIdx = src.indexOf('async function writeStepState')
+  assert.ok(readIdx > 0 && writeIdx > readIdx)
+  // readStepState 白名单
+  assert.ok(src.includes('iterationBaseCommit: data.iterationBaseCommit || null'))
+  assert.ok(src.includes('rolledBackAt: data.rolledBackAt || null'))
+  assert.ok(src.includes('rollbackBase: data.rollbackBase || null'))
+  assert.ok(src.includes('rollbackSteps: data.rollbackSteps || 0'))
+  assert.ok(src.includes('rollbackDegraded: data.rollbackDegraded || null'))
+  // writeStepState payload 同步写入（否则写盘即丢）
+  assert.ok(src.includes('iterationBaseCommit: state.iterationBaseCommit || null'))
+  assert.ok(src.includes('rolledBackAt: state.rolledBackAt || null'))
+  assert.ok(src.includes('rollbackBase: state.rollbackBase || null'))
+  assert.ok(src.includes('rollbackSteps: state.rollbackSteps || 0'))
+  assert.ok(src.includes('rollbackDegraded: state.rollbackDegraded || null'))
+})

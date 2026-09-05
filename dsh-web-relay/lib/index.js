@@ -1454,9 +1454,15 @@ export function apply(ctx) {
         const target = await stepStateTarget(base, exprId)
         const text = await fs.readText(target)
         const data = JSON.parse(text)
-        if (data && Array.isArray(data.steps)) return { exprId, currentStep: data.currentStep || null, status: data.status || 'open', phase: data.phase || (data.steps.length ? 'executing' : 'planning'), architectNotes: data.architectNotes || null, contextRequests: Array.isArray(data.contextRequests) ? data.contextRequests : [], steps: data.steps, updatedAt: data.updatedAt, autoReview: data.autoReview === true, stopReason: data.stopReason || null, stoppedAt: data.stoppedAt || null, finalized: data.finalized === true, finalizedAt: data.finalizedAt || null, finalSummary: data.finalSummary || null, protocolVersion: data.protocolVersion || 'v1.5', activeSteps: Array.isArray(data.activeSteps) ? data.activeSteps : [], iterations: data.iterations || 1, currentIteration: data.currentIteration || 1, finalAcceptance: data.finalAcceptance || null, autoDecision: data.autoDecision === true, rejectStreak: data.rejectStreak || 0, incrementalStreak: data.incrementalStreak || 0 }
+        if (data && Array.isArray(data.steps)) return { exprId, currentStep: data.currentStep || null, status: data.status || 'open', phase: data.phase || (data.steps.length ? 'executing' : 'planning'), architectNotes: data.architectNotes || null, contextRequests: Array.isArray(data.contextRequests) ? data.contextRequests : [], steps: data.steps, updatedAt: data.updatedAt, autoReview: data.autoReview === true, stopReason: data.stopReason || null, stoppedAt: data.stoppedAt || null, finalized: data.finalized === true, finalizedAt: data.finalizedAt || null, finalSummary: data.finalSummary || null, protocolVersion: data.protocolVersion || 'v1.5', activeSteps: Array.isArray(data.activeSteps) ? data.activeSteps : [], iterations: data.iterations || 1, currentIteration: data.currentIteration || 1, finalAcceptance: data.finalAcceptance || null, autoDecision: data.autoDecision === true, rejectStreak: data.rejectStreak || 0, incrementalStreak: data.incrementalStreak || 0,
+          // v3.8 Step3-fix：回滚/基线相关字段纳入读白名单（v3.7.1 曾漏 iterationBaseCommit → 面板回滚恒 400「缺基线」）
+          iterationBaseCommit: data.iterationBaseCommit || null,
+          rolledBackAt: data.rolledBackAt || null,
+          rollbackBase: data.rollbackBase || null,
+          rollbackSteps: data.rollbackSteps || 0,
+          rollbackDegraded: data.rollbackDegraded || null }
       } catch (err) { /* no state yet */ }
-      return { exprId, steps: [], currentStep: null, status: 'open', phase: 'planning', architectNotes: null, contextRequests: [], autoReview: false, stopReason: null, stoppedAt: null, finalized: false, finalizedAt: null, finalSummary: null, protocolVersion: 'v1.5', activeSteps: [], iterations: 1, currentIteration: 1, finalAcceptance: null, autoDecision: false, rejectStreak: 0, incrementalStreak: 0 }
+      return { exprId, steps: [], currentStep: null, status: 'open', phase: 'planning', architectNotes: null, contextRequests: [], autoReview: false, stopReason: null, stoppedAt: null, finalized: false, finalizedAt: null, finalSummary: null, protocolVersion: 'v1.5', activeSteps: [], iterations: 1, currentIteration: 1, finalAcceptance: null, autoDecision: false, rejectStreak: 0, incrementalStreak: 0, iterationBaseCommit: null, rolledBackAt: null, rollbackBase: null, rollbackSteps: 0, rollbackDegraded: null }
     }
 
     async function writeStepState(base, exprId, state, safePolicy) {
@@ -1485,6 +1491,12 @@ export function apply(ctx) {
           rejectStreak: state.rejectStreak || 0,
           // P3-fix(v3.5.0): 突破度 streak 必须落盘（否则跨 restructure 不累积、门禁永不触发）
           incrementalStreak: state.incrementalStreak || 0,
+          // v3.8 Step3-fix：基线/回滚字段纳入写白名单（v3.7.1 曾漏 iterationBaseCommit → 写盘即丢）
+          iterationBaseCommit: state.iterationBaseCommit || null,
+          rolledBackAt: state.rolledBackAt || null,
+          rollbackBase: state.rollbackBase || null,
+          rollbackSteps: state.rollbackSteps || 0,
+          rollbackDegraded: state.rollbackDegraded || null,
         updatedAt: new Date().toISOString()
       }
       await fs.writeText(target, JSON.stringify(payload, null, 2), undefined, undefined, safePolicy)
