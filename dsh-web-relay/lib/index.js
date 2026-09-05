@@ -3310,9 +3310,10 @@ export function apply(ctx) {
           })
         }
 
-        // P3(v3.5.0): Architect 突破度门禁（非阻断 warn）——对本次重构版本解析 breakthrough_type，
+        // P3(v3.5.0): Architect 突破度门禁（非阻断 warn）——对本次重构版本解析 breakthrough_type。
+        // 注意：用原始 payload newSteps 审计（normalizeStep 会丢弃 breakthrough_type），
         // 连续 Incremental 超限（≥2）时 console.warn + 响应字段提示；streak 落盘供跨版本延续。
-        const btAudit = auditBreakthrough(normalizedNew, state.incrementalStreak || 0)
+        const btAudit = auditBreakthrough(newSteps, state.incrementalStreak || 0)
         if (btAudit.warn) console.warn('[dsh-web-relay] ' + btAudit.warn)
         state.incrementalStreak = btAudit.streak
 
