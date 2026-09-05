@@ -2,7 +2,7 @@
   "meta": {
     "schemaVersion": "0.1",
     "title": "dsh-web-relay 主 agent 语境能力 lesson 库（机器可读）",
-    "updatedAt": "2026-09-05T01:00:00.000Z",
+    "updatedAt": "2026-09-05T02:00:00.000Z",
     "carrierOf": "docs/main-agent-lesson-schema-v0.1.md",
     "statusConvention": "proposed（主 agent 产出）→ approved / in-runbook（用户或外部 AI 确认，记 confirmedBy/confirmedAt）；in-runbook=要点已并入 main-agent-runbook 正文；superseded=内容已并入他条（扩展值，机器消费时应跳过）",
     "confirmedAt": "2026-09-04T13:14:35.897Z",
@@ -460,6 +460,21 @@
       "recordedAt": "2026-09-05T00:00:00.000Z",
       "confirmedBy": "user",
       "confirmedAt": "2026-09-05T01:00:00.000Z"
+    },
+    {
+      "id": "L-2026-0905-028",
+      "title": "宿主级机制开发必须 DRYRUN/模拟先行；禁止对真实宿主直接执行 kill/拉起",
+      "category": "engineering-action",
+      "layer": "L3",
+      "trigger": "实现涉及真实宿主进程生命周期的机制（watchdog 重启/优雅停机/编排）并准备验证时",
+      "decision": "先给实现加 DRYRUN/模拟模式（只打日志不产生真实副作用），用死端口/假目标做失联模拟验证完整触发链（miss→门→拉起流程），再以单测锁门序语义；真实 kill/spawn 链只在用户按部署文档启用时执行，验证期间绝不对运行中的宿主做 kill",
+      "rationale": "watchdog DRYRUN 失联模拟（端口 3999）暴露 stormGate 计数膨胀 bug（先记录后判门→暂停期仍累计），若直接对真实宿主实机验证会同时引入误杀风险与难以复现的偶发；模拟先行把状态机 bug 在零副作用下暴露",
+      "evidence": "expr-2026-09-05_01-53-03（v3.9.0）S3：DRYRUN 模拟两轮（第一轮暴露 bug→attemptRestart 先判门再记录修复→第二轮计数稳定 3 不再膨胀）；watchdog.test.js attemptRestart 用例；commit 8b16cfa",
+      "confidence": "high",
+      "status": "approved",
+      "suggested": "in-runbook",
+      "crossRef": [],
+      "recordedAt": "2026-09-05T02:00:00.000Z"
     }
   ]
 }
