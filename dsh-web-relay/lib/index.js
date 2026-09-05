@@ -1148,6 +1148,10 @@ export function apply(ctx) {
         // v1.7: 多方案比较 / 步骤权重透传（importance 缺省 null = 普通；high/medium/low 显式标注）
         alternatives: Array.isArray(raw && raw.alternatives) ? raw.alternatives : [],
         importance: (raw && raw.importance === 'high' || raw && raw.importance === 'medium' || raw && raw.importance === 'low') ? raw.importance : null,
+        // v3.7.0 P1: 扩展字段透传（Schema 保全——breakthrough_type/architect_vision/architect 归一化时不再丢失）
+        breakthrough_type: (raw && raw.breakthrough_type != null) ? String(raw.breakthrough_type) : null,
+        architect_vision: (raw && raw.architect_vision && typeof raw.architect_vision === 'object') ? raw.architect_vision : null,
+        architect: (raw && raw.architect && typeof raw.architect === 'object') ? raw.architect : null,
         status: 'pending',
         notes: []
       }
@@ -3259,7 +3263,11 @@ export function apply(ctx) {
               reviewSpecified: def.reviewSpecified,
               depends_on: def.depends_on,
               parallel_group: def.parallel_group,
-              alternatives: def.alternatives
+              alternatives: def.alternatives,
+              // v3.7.0 P1: restructure 覆盖同样透传扩展字段（Schema 保全）
+              breakthrough_type: def.breakthrough_type,
+              architect_vision: def.architect_vision,
+              architect: def.architect
             }
             updated.push(merged)
             changes.updated.push(String(existing.id))

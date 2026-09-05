@@ -2,12 +2,12 @@
   "meta": {
     "schemaVersion": "0.1",
     "title": "dsh-web-relay 主 agent 语境能力 lesson 库（机器可读）",
-    "updatedAt": "2026-09-04T15:20:00.000Z",
+    "updatedAt": "2026-09-05T00:00:00.000Z",
     "carrierOf": "docs/main-agent-lesson-schema-v0.1.md",
     "statusConvention": "proposed（主 agent 产出）→ approved / in-runbook（用户或外部 AI 确认，记 confirmedBy/confirmedAt）；in-runbook=要点已并入 main-agent-runbook 正文；superseded=内容已并入他条（扩展值，机器消费时应跳过）",
     "confirmedAt": "2026-09-04T13:14:35.897Z",
     "confirmedBy": "user（主对话确认：同意三态分类建议）",
-    "confirmationNote": "2026-09-04：用户确认 017-024 转 approved（confirmedBy=user 2026-09-04T15:20:00.000Z）。"
+    "confirmationNote": "2026-09-05：追加 v3.6.0 复盘 lesson 025-027（proposed，待用户/外部确认转 approved）。"
   },
   "lessons": [
     {
@@ -412,6 +412,54 @@
       "recordedAt": "2026-09-04T00:00:00.000Z",
       "confirmedBy": "user",
       "confirmedAt": "2026-09-04T15:20:00.000Z"
+    },
+    {
+      "id": "L-2026-0905-025",
+      "title": "E2E 端到端真实校验是长链深层 bug 的防线：静态预检/单测易漏参数错位与字段丢失，发布前必须做一次真实运行时链路验证",
+      "category": "engineering-action",
+      "layer": "L2",
+      "trigger": "涉及 fs 写参/状态字段持久化/数据透传的改动，在发布前",
+      "decision": "除单测外补一次 E2E（真实 finalize/restructure/complete 触发）验证字段与写参在运行时闭环；失败按错误清单修复后重验",
+      "rationale": "v3.6.0 实测抓到 3 个真 bug（P1 fs.writeText 5 参错位致案例库从不写入；P3 incrementalStreak 未持久化；P3 restructure 审 normalizedNew 丢 breakthrough_type），单测全绿仍漏",
+      "evidence": "expr-2026-09-04_17-45-25 E2E 实证；commit 8535fda",
+      "confidence": "high",
+      "status": "proposed",
+      "suggested": "approved",
+      "recordedAt": "2026-09-05T00:00:00.000Z",
+      "confirmedBy": null,
+      "confirmedAt": null
+    },
+    {
+      "id": "L-2026-0905-026",
+      "title": "\"缺证据打回→补证重提\"三方闭环：complete 必带实体证据（执行日志/测试数/commit），外部 AI 按证据审核",
+      "category": "collaboration-rhythm",
+      "layer": "L2",
+      "trigger": "主 agent complete/提交审核时；外部 AI 审核证据不足时",
+      "decision": "主 agent：complete 前把实施证据写入 notes（文件/命令输出/测试数/commit）；外部 AI：证据不足即 rejected 并指明缺什么，避免放水",
+      "rationale": "v3.6.0 5 步外部审核 2 次打回-补证闭环，拦截\"虚假完成\"；证据型完成是三方可信的基石",
+      "evidence": "expr-2026-09-04_17-45-25（Step1/5 打回补证）",
+      "confidence": "high",
+      "status": "proposed",
+      "suggested": "approved",
+      "recordedAt": "2026-09-05T00:00:00.000Z",
+      "confirmedBy": null,
+      "confirmedAt": null
+    },
+    {
+      "id": "L-2026-0905-027",
+      "title": "热路径成批变更 + 受控重启纪律：core 加载链改动攒批、一次重启验证多步，减少中间态不一致",
+      "category": "engineering-action",
+      "layer": "L2",
+      "trigger": "需重启才生效的宿主（lib/index.js 等）改动",
+      "decision": "能热（client/纯模块）就不重启；host 改动成批后单次重启收口验证；重启清单随版本记录（E2E/外部审核/版本号显示项）",
+      "rationale": "v3.6.0 以\"client 刷新即生效 + host 改动聚合一次重启\"完成 5 步收口；设计文档 §10 三类支撑（门禁/影子/热路径）",
+      "evidence": "docs/auto-iteration-shadow-support-design.md §10；expr-2026-09-04_17-45-25",
+      "confidence": "medium",
+      "status": "proposed",
+      "suggested": "approved",
+      "recordedAt": "2026-09-05T00:00:00.000Z",
+      "confirmedBy": null,
+      "confirmedAt": null
     }
   ]
 }
