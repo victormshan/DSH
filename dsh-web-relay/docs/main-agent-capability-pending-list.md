@@ -81,3 +81,19 @@
 2. 去重核对（§0 基线）→ 给每条"建议落点（registry/能力行/lesson proposed/runbook）"
 3. 交用户/外部 AI 确认 → 逐条补登记（含 lessons.json status/confirmedBy）→ verify 复验
 4. §2 引擎待办（P1-P5）纳入 Stage C / v3.5.0 Step List（S1-S7 + S8/S9 影子支撑）
+
+---
+
+## 5. 更新核对（2026-09-05）
+
+> 9/5 主对话（v3.5.0→v4.3.0 + 能力持久化维护）后复核，§0-§4 为 9/4 快照；以下为最新核对：
+
+| 库 | 9/4 快照 | 9/5 现状 | 核对结论 |
+|---|---|---|---|
+| registry.yaml | 10 条 | **14 条** | 12（含 9/4-9/5 机制登记）+ v4 新增 2（host-restart-resume / autonomous-validation）→ verify 14/14 绿 |
+| 能力清单 | A-D 25 + E 4 | A-D 25 + **E1-E13** | E 区补 v3.5-v4.3 机制行（GC/rollback/Schema/watchdog/续跑/自主实证） |
+| lessons.json | 17 条 | **32 条**（001-032） | 017-027（v3.5-v3.7 复盘，user 已确认）+ 028-032（9/5 新教训，approved） |
+| §2 P1-P4 | 待 v3.5.0 | **已闭环** | P1 案例库（v3.5.0）、P2 Swarm 默认开（v3.5.0）、P3 突破度门禁（v3.5.0）、P4 文档同步（持续）——见能力文档 E1-E4 接线状态 |
+| §3 C-a~C-j 语境候选 | 待用户确认 | **已覆盖** | C-a/C-b/C-c/C-d/C-f/C-g → 与 lessons 017-032 / runbook 家族重合（多子代理并行=实验 V1-V3 实证、版本断言=lesson 003/015 族、git 原子交付=lesson 015、实测数据=analysis、渠道分层=OPS/通道文档、版本多源=lesson 029/runbook §4）；C-e 跨工作区桥接 → resume-scan 候选基准（DSH_RELAY_WORKSPACE）机制化；C-h/C-i/C-j 已标注覆盖 |
+
+**剩余未决（9/5）**：① lesson Top-K 注入（schema §4 愿景）② 跨宿主「自动唤醒续跑」真实实测 ③ AutoIteration 声明解析兜底（lesson 031）④ 宿主重启编排子命令化（lesson 032）⑤ registry lastVerified 自动回写。

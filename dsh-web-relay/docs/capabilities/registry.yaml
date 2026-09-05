@@ -219,3 +219,45 @@
   lastVerified: 2026-09-04
   status: approved
   version: 1
+
+- id: v4-host-restart-resume
+  name: 宿主重启续跑机制（cross-restart resume + watchdog 托管运维）
+  category: platform
+  scope: host-ops-resume
+  source: docs/OPS-RESTART-RESUME.md
+  skill: null
+  trigger: 宿主重启后任务续跑检测/唤醒/熔断、watchdog 托管排障、/admin/resume-scan 手动触发
+  conflicts: []
+  verification:
+    - file-exists: docs/OPS-RESTART-RESUME.md
+    - content-contains:
+        file: docs/OPS-RESTART-RESUME.md
+        text: "bootId"
+    - content-contains:
+        file: docs/OPS-RESTART-RESUME.md
+        text: "重启续跑熔断"
+    - file-exists: docs/AUTO-ITERATION-ANALYSIS.md
+  lastVerified: 2026-09-05
+  status: approved
+  version: 1
+
+- id: v4-autonomous-autoiteration-validation
+  name: 完全自主三方协作 AutoIteration 实证（面板化 + 运维 SOP + 效果分析）
+  category: workflow
+  scope: autonomous-iteration-validation
+  source: docs/AUTO-ITERATION-ANALYSIS.md
+  skill: null
+  trigger: 复盘自主迭代效果、自主协作摩擦点、AutoIteration 版间门推进验证
+  conflicts: []
+  verification:
+    - file-exists: docs/AUTO-ITERATION-ANALYSIS.md
+    - content-contains:
+        file: docs/AUTO-ITERATION-ANALYSIS.md
+        text: "版间门"
+    - content-contains:
+        file: docs/AUTO-ITERATION-ANALYSIS.md
+        text: "重启账目"
+    - file-exists: docs/OPS-RESTART-RESUME.md
+  lastVerified: 2026-09-05
+  status: approved
+  version: 1

@@ -112,3 +112,20 @@
 - ⏳ 未决 1：lesson Top-K 注入（schema §4 v0.3 愿景：handoff 按 trigger 注入 3-5 条）未实施——`lessons.json` 已可被消费（消费方应跳过 superseded），属引擎侧小迭代。
 - ⏳ 未决 2：V3 路线图 gap-analysis §5 P1-P4 未落地（案例库闭环/Swarm 启用/突破度门禁/引擎修正——v3.5.0 候选，计划已备 S1-S7 待确认）。
 - ⏳ 未决 3：registry 部分条目 `lastVerified` 仍为 2026-09-02（脚本不回写，需手工/增强）。
+
+---
+
+## §9 增量核对（2026-09-05，承接 9/4 快照）
+
+> 口径说明：§0-§8 为 9/4 快照；9/5 主对话（v3.5.0→v4.3.0 迭代 + 能力持久化维护）之后的最新状态以本节约为权威。
+
+| 资产 | 9/4 快照 | 9/5 现状 | 增量 |
+|---|---|---|---|
+| registry.yaml | 6 条 | **14 条** | v3.5-v3.9 机制 6 条（shadow/prompt-case/swarm/breakthrough/channels/replay-notify，v3.6-3.9 阶段登记）+ v4 新增 2 条（v4-host-restart-resume / v4-autonomous-autoiteration-validation）→ verify-capabilities.mjs 14/14 绿 |
+| 能力文档 A-D + E | A-D 25 项、E 无 | A-D 25 项 + **E1-E13** | E 区补 13 行：v3.5-v3.9 机制（GC/rollback/Schema 保全/watchdog 等）+ E12 重启续跑（v4.0）+ E13 自主迭代实证（v4.1-4.3） |
+| lessons | 16 条（001-016） | **32 条（001-032）** | 017-027（v3.5-v3.7 复盘）+ 028（DRYRUN 模拟先行）+ 029（.cmd 纯 ASCII）+ 030（.test.js 命名）+ 031（声明机读 JSON 块）+ 032（重启编排单步幂等） |
+| 文档新增 | — | docs/OPS-RESTART-RESUME.md、docs/AUTO-ITERATION-ANALYSIS.md | 运维 SOP + 自主迭代效果分析（含 §七 重启账目复盘修正） |
+| 版本发布 | v3.4.0 | **v4.3.0**（8f9cc13→8e3b09a + 648f66d docs 补账） | v3.5.0→v4.3.0 共 10+ 版本，全 commit+tag+push |
+| 测试基线 | — | 154/154（23 文件） | 全量回归持续绿 |
+
+**未决更新**：§8 未决 2（V3 gap P1-P4）已于 v3.5-v3.8 全部落地（案例库闭环/Swarm/突破度门禁/Schema 保全）→ 改为已闭环；新增未决：① lesson Top-K 注入（原未决 1）仍开放；② 跨宿主「自动唤醒续跑」真实实测（expr 带 sessionId + watchdog 重启 + wakeMainAgent）；③ AutoIteration 声明解析兜底（lesson 031 建议）；④ 宿主重启编排子命令化（lesson 032 建议）；⑤ registry lastVerified 自动回写。
