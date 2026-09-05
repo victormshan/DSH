@@ -68,6 +68,45 @@ export function hostArgv() {
   return base
 }
 
+// ---------- 注册表环境补注入（v3.9.1-fix）----------
+// 背景：GEMINI_API_KEY 等以 DPAPI blob 存于 User/Machine 环境（dsh 启动时解密注入）。
+// 若 watchdog 进程自身 env 缺该变量（继承链早于注册表设置/经深层子进程链拉起），
+// 其 spawn 的宿主会丢 key（/status geminiConfigured=false）。
+// 修复：spawn 前从注册表 User→Machine 回读指定变量，并入子进程 env。
+const REG_USER = 'HKCU\\Environment'
+const REG_MACHINE = 'HKLM\\SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Environment'
+// 解析 `reg query` 输出中的 REG_SZ 值（纯函数可单测；注意 CRLF——先剥行尾 \r 再匹配）
+export function parseRegValue(out, name) {
+  const lines = String(out || '').split('\n')
+  for (const raw of lines) {
+    const l = raw.replace(/\r$/, '')
+    const m = l.match(/^\s*(\S+)\s+REG_\w+\s+(.*)$/)
+    if (m && m[1].toUpperCase() === String(name).toUpperCase()) return m[2].trim()
+  }
+  return null
+}
+export function readRegistryEnv(name) {
+  for (const hive of [REG_USER, REG_MACHINE]) {
+    try {
+      const out = execSync(`reg query "${hive}" /v ${name}`, { encoding: 'utf8', timeout: 3000, stdio: ['ignore', 'pipe', 'pipe'] })
+      const v = parseRegValue(out, name)
+      if (v) return v
+    } catch { /* try next hive */ }
+  }
+  return null
+}
+export function childEnv() {
+  const env = { ...process.env }
+  // 仅当进程 env 缺失时补注入（避免覆盖已存在的明文/解密值）
+  for (const name of ['GEMINI_API_KEY', 'GEMINI_MODEL']) {
+    if (!env[name]) {
+      const v = readRegistryEnv(name)
+      if (v) env[name] = v
+    }
+  }
+  return env
+}
+
 // ---------- 运行时 ----------
 function httpGetJson(url, timeoutMs) {
   return new Promise((resolve) => {
@@ -110,10 +149,12 @@ const restartTimes = []
 
 function spawnHost() {
   const argv = hostArgv()
-  log(`拉起宿主：${CFG.nodeExe} ${argv.join(' ')}`)
+  const env = childEnv() // v3.9.1-fix: 补注入注册表 GEMINI_API_KEY/GEMINI_MODEL（防深层链丢 key）
+  const injected = Object.keys(env).filter((k) => (k === 'GEMINI_API_KEY' || k === 'GEMINI_MODEL') && env[k] !== process.env[k])
+  log(`拉起宿主：${CFG.nodeExe} ${argv.join(' ')}${injected.length ? `（env 补注入：${injected.join(',')}）` : ''}`)
   let out
   try { out = fs.openSync(CFG.logFile, 'a') } catch { out = 'ignore' }
-  child = spawn(CFG.nodeExe, argv, { cwd: __dirname, stdio: ['ignore', out, out], windowsHide: true })
+  child = spawn(CFG.nodeExe, argv, { cwd: __dirname, stdio: ['ignore', out, out], windowsHide: true, env })
   child.on('exit', (code, signal) => {
     log(`宿主退出（code=${code} signal=${signal}）；${CFG.restartDelayMs}ms 后重新探测`)
     child = null

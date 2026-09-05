@@ -96,6 +96,7 @@ git tag v0.7.0
 
 | 版本 | 协议 | 内容 |
 |---|---|---|
+| 3.9.1 | v1.9 | watchdog env 补注入（spawn 宿主前从注册表 User→Machine 回读 GEMINI_API_KEY/GEMINI_MODEL 并入子进程 env——修深层进程链丢 key 致 /status gemini=false；parseRegValue CRLF 修复）；watchdog.test +2（parseRegValue/childEnv），全量 144/144 |
 | 3.9.0 | v1.9 | 优雅停机 + watchdog 自愈（expr-2026-09-05_01-53-03，S1-S5 external approved）：/admin/prepare-restart 端点（409 停新任务/start、cancel 复位、health-check 暴露 preparing）+ bin/watchdog.mjs 独立进程（miss≥3→prepare→树杀→拉起、stormGate 防风暴、DRYRUN 模拟）+ 面板琥珀提示灯；watchdog.test 7 + admin.test 2，全量 142/142 |
 | 3.8.0 | v1.9 | GC 定时化 + 回滚状态复位/持久化修复 + 面板回滚展示（expr-2026-09-05_01-22-37）：gcScheduleMs + apply 进程级定时 GC（DSH_RELAY_GC_MS/DSH_RELAY_REPO_PATH）；rollback-state.js 复位策略；修 v3.7.1 持久化洞（基线/回滚 5 字段纳入读写白名单）；rollback E2E 三情形全绿；全量 133/133 |
 | 3.2.6 | v1.9 | 长回答截断根治：dialog/claude 超时 60s/120s→300s、web-gemini 150s→300s、error/aborted chunk 拦截、extractChunkText 跳过 reason/error/code/message 键 |

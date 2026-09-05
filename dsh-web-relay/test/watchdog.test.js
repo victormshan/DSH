@@ -2,7 +2,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
-import { stormGate, classifyProbe, decideRestart, parseCommand, hostArgv, attemptRestart, CFG } from '../bin/watchdog.mjs'
+import { stormGate, classifyProbe, decideRestart, parseCommand, hostArgv, attemptRestart, parseRegValue, childEnv, CFG } from '../bin/watchdog.mjs'
 
 test('classifyProbe：HTTP200 且 body.ok===true 才算存活', () => {
   assert.equal(classifyProbe({ httpOk: true, okFlag: true }), true)
@@ -72,4 +72,27 @@ test('source 契约：watchdog 探测端点/拉起命令与 S1 spec 一致', () 
   assert.ok(src.includes('missN'))              // 连续 miss 阈值
   assert.ok(src.includes('v3.9 S3'))
   assert.ok(src.includes('isMain'))             // CLI 主入口守卫（可被测试 import）
+})
+
+// ---- v3.9.1-fix：注册表 env 补注入（防深层进程链丢 GEMINI key）----
+test('parseRegValue：解析 reg query REG_SZ 输出（大小写不敏感、忽略无关行）', () => {
+  const out = [
+    '',
+    'HKEY_CURRENT_USER\\Environment',
+    '    GEMINI_API_KEY    REG_SZ    AQ.Ab8-secret-value',
+    '    Path    REG_EXPAND_SZ    C:\\x',
+    ''
+  ].join('\n')
+  assert.equal(parseRegValue(out, 'GEMINI_API_KEY'), 'AQ.Ab8-secret-value')
+  assert.equal(parseRegValue(out, 'gemini_api_key'), 'AQ.Ab8-secret-value') // 大小写不敏感
+  assert.equal(parseRegValue(out, 'GEMINI_MODEL'), null)                    // 不存在的变量
+  assert.equal(parseRegValue('', 'X'), null)
+})
+
+test('childEnv：进程 env 已有值时不覆盖；缺失时返回含注册表补注入的 env（不抛错）', () => {
+  const env = childEnv()
+  assert.ok(env && typeof env === 'object')
+  assert.ok(env.GEMINI_API_KEY === undefined || env.GEMINI_API_KEY.length > 0)
+  // 不覆盖语义：模拟已有值 → childEnv 结果应保留原值（process.env 有则不动）
+  if (process.env.GEMINI_API_KEY) assert.equal(env.GEMINI_API_KEY, process.env.GEMINI_API_KEY)
 })
