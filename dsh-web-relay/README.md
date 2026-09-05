@@ -67,12 +67,37 @@ git tag v0.7.0
 
 `deploy.ps1` 已在部署侧实现同样检查：源版本与安装目录版本不一致时拒绝部署。
 
+## 宿主 Watchdog 与优雅停机（v3.9.0）
+
+宿主（dsh web）启动时加载插件 lib、运行期不重载 → 宿主侧改动需重启。v3.9 提供「优雅停机 + 独立 watchdog 轻量拉起」闭环：
+
+1. **优雅停机准备端点** `POST /dsh-web-relay/admin/prepare-restart`（插件侧）：
+   - 触发后停收新任务（`/ask` 与新步骤 `start` 返回 HTTP 409）并返回 `ready:true`；in-flight 完成/审核不受影响。
+   - `POST {cancel:true}` 复位；`GET` 查询状态。宿主重启后进程级状态自动复位。
+   - `/health-check` 同步暴露 `preparing/preparedAt`（watchdog 与面板状态灯数据源）。
+2. **宿主 Watchdog 独立进程** `bin/watchdog.mjs`（不进插件 lib，独立部署）：
+   - 每 `CHECK_MS`(5s) 探测 `GET /health-check`（HTTP200 且 `body.ok===true` 为存活）；连续 miss ≥ `MISS_N`(3) → 先请求 prepare-restart → `taskkill /PID <pid> /T /F` 树杀 → 重新拉起宿主。
+   - 防风暴：`WINDOW_MS`(10min) 内重启 ≥ `MAX_RESTARTS`(3) 次则暂停 `PAUSE_MS`(10min)（先判门再记录，暂停期不累计）。
+   - **模拟模式**：`DSH_WEB_DRYRUN=1` 只打日志不 kill/spawn（验收/演练用）。
+   - 环境变量：`DSH_WEB_PORT`(3080)、`DSH_WEB_CMD`（整条命令，优先）、`DSH_WEB_BIN`/`DSH_WEB_ARGS`、`DSH_NODE_EXE`、`DSH_WEB_LOG`、`DSH_WEB_CHECK_MS`/`DSH_WEB_MISS_N`/`DSH_WEB_MAX_RESTARTS`/`DSH_WEB_WINDOW_MS`/`DSH_WEB_PAUSE_MS`。
+   - 默认宿主命令自动探测：`<node realpath> <nvm 全局 node_modules>/@deepseek-ai/dsh/lib/bin.js web`。
+3. **部署（Windows 计划任务，开机自启 + 崩溃自愈）**：
+   ```powershell
+   $action = New-ScheduledTaskAction -Execute '<node.exe 完整路径>' -Argument 'D:\DSH\dsh-web-relay\bin\watchdog.mjs' -WorkingDirectory 'D:\DSH\dsh-web-relay'
+   $trigger = New-ScheduledTaskTrigger -AtLogOn
+   Register-ScheduledTask -TaskName 'DSH-WEB-Watchdog' -Action $action -Trigger $trigger -Force
+   ```
+   注意：watchdog 会拉起宿主进程（默认 `dsh web` 命令），请确认与手动启动方式不冲突（二选一，勿双开）。
+4. **面板**：健康状态灯旁显示琥珀「优雅停机准备中（重启通道已就绪）」（`/health-check.preparing`，30s 轮询）。
+
 ## 版本历史
 
 > 注：下表为历史里程碑记录；**当前版本以 `package.json` 为准**（单一数据源，见改进方案 P1-3）。
 
 | 版本 | 协议 | 内容 |
 |---|---|---|
+| 3.9.0 | v1.9 | 优雅停机 + watchdog 自愈（expr-2026-09-05_01-53-03，S1-S5 external approved）：/admin/prepare-restart 端点（409 停新任务/start、cancel 复位、health-check 暴露 preparing）+ bin/watchdog.mjs 独立进程（miss≥3→prepare→树杀→拉起、stormGate 防风暴、DRYRUN 模拟）+ 面板琥珀提示灯；watchdog.test 7 + admin.test 2，全量 142/142 |
+| 3.8.0 | v1.9 | GC 定时化 + 回滚状态复位/持久化修复 + 面板回滚展示（expr-2026-09-05_01-22-37）：gcScheduleMs + apply 进程级定时 GC（DSH_RELAY_GC_MS/DSH_RELAY_REPO_PATH）；rollback-state.js 复位策略；修 v3.7.1 持久化洞（基线/回滚 5 字段纳入读写白名单）；rollback E2E 三情形全绿；全量 133/133 |
 | 3.2.6 | v1.9 | 长回答截断根治：dialog/claude 超时 60s/120s→300s、web-gemini 150s→300s、error/aborted chunk 拦截、extractChunkText 跳过 reason/error/code/message 键 |
 | 3.2.5 | v1.9 | 产物摘要截断显式标注"（摘要已截断，全文见产物文件）" |
 | 3.2.2 | v1.9 | reviewChannel 参数（auto / web-gemini 强制网页审核） |
