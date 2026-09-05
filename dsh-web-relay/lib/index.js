@@ -17,6 +17,7 @@ import { randomUUID } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { execSync } from 'node:child_process'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 // V3.2: 多角色盲审 Swarm Prompt 模板与共识合成（lib/swarm-prompts.js 纯函数模块）
 import { buildRolePrompt, swarmConsensus, parseRoleReview, swarmEnablePolicy } from './swarm-prompts.js'
 import { auditBreakthrough } from './breakthrough-gate.js'
@@ -25,6 +26,10 @@ import { checkL1Gate, runL2ShadowGate, shouldUseShadow, resolveRepoPath, runShad
 import { applyRollbackReset, markRollbackDegraded } from './rollback-state.js'
 // v4.0 Step1-3: 宿主重启续跑（纯函数决策，见 lib/resume-scan.js）
 import { isExprInterrupted, resumeAction, resumeHandoff } from './resume-scan.js'
+// v4.4 U3: AutoIteration 声明解析（可测重构 + 顺序无关/引号容忍兜底，见 lib/autoiter-decl.js）
+import { extractAutoIterDecl as extractAutoIterDeclLib } from './autoiter-decl.js'
+// v4.4 U1: Lesson Top-K 触发注入（见 lib/lessons-inject.js）
+import { loadLessonsFile, topLessonsForTrigger, renderLessonBlock } from './lessons-inject.js'
 
 // v2.4-1: 插件版本（从 package.json 实时读取，避免硬编码漂移——原 statusHandler 曾长期报 1.3.0）
 export const PLUGIN_VERSION = (() => {
@@ -1111,31 +1116,8 @@ export function apply(ctx) {
     // {"iterations": 3, "finalAcceptance": "<验收标准>", "autoDecision": true}
     // 宽松匹配 JSON 片段；缺省 iterations=1（单轮，向后兼容）。
     function extractAutoIterDecl(text) {
-      const src = String(text || '')
-      const decl = { iterations: 1, finalAcceptance: null, autoDecision: false }
-      const clamp = (n) => (Number.isInteger(n) && n >= 1 && n <= 10 ? n : null)
-      // 1) 严格 JSON 片段（协议推荐形态），如 {"iterations": 3, "finalAcceptance": "...", "autoDecision": true}
-      const m = src.match(/\{\s*"iterations"\s*:\s*(\d+)\s*(?:,\s*"finalAcceptance"\s*:\s*"([^"]*)"\s*)?(?:,\s*"autoDecision"\s*:\s*(true|false)\s*)?\}/)
-      if (m) {
-        const n = clamp(parseInt(m[1], 10))
-        if (n) decl.iterations = n
-        if (m[2]) decl.finalAcceptance = m[2]
-        if (m[3]) decl.autoDecision = m[3] === 'true'
-        return decl
-      }
-      // 2) 叙述式声明兜底（v3.3.2 修复：外部 AI 常把配置写在中文叙述里，
-      //    例：…（配置：`iterations: 3`, `autoDecision: true`）… 或「自动迭代 3 个版本」）
-      const n2 = src.match(/\biterations\s*[:：]\s*(\d+)/i)
-      const ni = n2 && clamp(parseInt(n2[1], 10))
-      if (!ni) {
-        const mC = src.match(/(?:自动迭代|自动演进|迭代)\s*[:：]?\s*(\d{1,2})\s*(?:个|次|轮)?版本/)
-        if (mC) { const n3 = clamp(parseInt(mC[1], 10)); if (n3) decl.iterations = n3 }
-      } else decl.iterations = ni
-      const ma = src.match(/autoDecision\s*[:：]\s*(true|false)/i)
-      if (ma) decl.autoDecision = ma[1].toLowerCase() === 'true'
-      const mf = src.match(/finalAcceptance\s*[:：]\s*["'“”‘’]([^"'“”‘’]+)["'“”‘’]/)
-      if (mf) decl.finalAcceptance = mf[1]
-      return decl
+      // v4.4 U3: 逻辑外移到 lib/autoiter-decl.js（顺序无关 JSON + 引号容忍叙述兜底）
+      return extractAutoIterDeclLib(text)
     }
 
     // ---------- v1.3 Step List parsing / state ----------
@@ -1617,8 +1599,18 @@ export function apply(ctx) {
       '- 工具排障: D:\\DSH\\dsh-web-relay\\skills\\agent-tool-troubleshooting\\SKILL.md',
       '- 主 agent Skill: D:\\DSH\\dsh-web-relay\\skills\\dsh-web-relay-main-agent\\SKILL.md'
     ].join('\n')
-    function attachMainAgentAssembly(text) {
-      return String(text || '') + '\n' + MAIN_AGENT_ASSEMBLY
+    // v4.4 U1: lessons.json 绝对路径（lib/ 同级 docs/）
+    const LESSONS_JSON_PATH = fileURLToPath(new URL('../docs/main-agent-lessons.json', import.meta.url))
+    async function attachMainAgentAssembly(text) {
+      const base = String(text || '')
+      // Lesson Top-K：按触发词匹配注入（读取失败静默降级为纯装配）
+      let lessonBlock = ''
+      try {
+        const lessons = loadLessonsFile(LESSONS_JSON_PATH)
+        const top = topLessonsForTrigger(lessons, base)
+        lessonBlock = renderLessonBlock(top)
+      } catch (err) { /* 注入可选 */ }
+      return base + '\n' + MAIN_AGENT_ASSEMBLY + lessonBlock
     }
 
 
@@ -1632,7 +1624,7 @@ export function apply(ctx) {
         payload: {
           sessionId,
           mode: 'queue',
-          content: [{ type: 'text', text: attachMainAgentAssembly(handoffText) }]
+          content: [{ type: 'text', text: await attachMainAgentAssembly(handoffText) }]
         }
       })
       const accepted = !!(resp && resp.result && resp.result.ok === true)

@@ -287,6 +287,25 @@ async function auxBridgeTick() {
 const isMain = process.argv[1] && import.meta.url === new URL(`file://${process.argv[1].replace(/\\/g, '/')}`).href
 if (isMain) {
   if (!acquireLock()) process.exit(0) // 单例锁：已有实例则退出
+  const restartNow = process.argv[2] === 'restart-now'
+  if (restartNow) {
+    // v4.4 U4: restart-now 原子子命令——prepare → 确认 → 树杀当前宿主 → 进入监控（首检自动拉起新宿主）
+    if (CFG.dryRun) {
+      log(`[DRYRUN][restart-now] 将执行：POST /admin/prepare-restart → taskkill 当前宿主 → 首检拉起新宿主（不实际执行）`)
+    } else {
+      log('[restart-now] 触发优雅停机准备…')
+      prepareBestEffort()
+      await new Promise((r) => setTimeout(r, 800)) // 等待 prepare 生效（落盘/停新任务）
+      const pid = findPortPid()
+      if (pid) {
+        log(`[restart-now] 树杀当前宿主 PID=${pid}`)
+        killPidTree(pid)
+      } else {
+        log('[restart-now] 未发现 3080 宿主进程（可能已不在线），直接进入拉起流程')
+      }
+      log('[restart-now] 宿主已停，进入监控（首检将立即拉起新宿主）')
+    }
+  }
   log(`开始守护 dsh web @127.0.0.1:${CFG.port}（每 ${CFG.checkMs / 1000}s 探测，miss ≥ ${CFG.missN} 重启；防风暴 ${CFG.maxRestarts} 次/${CFG.windowMs / 60000}min）`)
   log(`宿主命令：${CFG.nodeExe} ${hostArgv().join(' ')}`)
   ;(async () => {

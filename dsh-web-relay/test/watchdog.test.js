@@ -133,3 +133,12 @@ test('source 标记：桥接链路总守护（bin/watchdog.mjs v3.9.3）', () =>
   assert.ok(src.includes('spawn(CFG.nodeExe, [d.path]')) // 拉起 DSH-Bridge-Watchdog
   assert.ok(src.includes('v3.9.3'))
 })
+
+// ---- v4.4 U4：restart-now 原子子命令 ----
+test('source 标记：restart-now 子命令（bin/watchdog.mjs v4.4）', () => {
+  const src = fs.readFileSync(new URL('../bin/watchdog.mjs', import.meta.url), 'utf8')
+  assert.ok(src.includes("process.argv[2] === 'restart-now'"))
+  assert.ok(src.includes('[restart-now]'))
+  assert.ok(src.includes('DRYRUN][restart-now'))
+  assert.ok(src.includes('killPidTree(pid)'))
+})

@@ -96,6 +96,7 @@ git tag v0.7.0
 
 | 版本 | 协议 | 内容 |
 |---|---|---|
+| 4.4.0 | v1.9 | 能力持久化未决 5 项闭环（expr-2026-09-05_14-50-07，S1-S5 external approved）：U5 verify --update 自动回写 lastVerified（14 条）；U3 AutoIteration 声明解析兜底（lib/autoiter-decl.js 重构：JSON 字段序无关 + 引号容忍叙述/中文，auto-iter-decl.test 6 例）；U1 Lesson Top-K 触发注入（lib/lessons-inject.js bigram 打分，wake 装配按触发词注入 Top 教训，lessons-inject.test 6 例）；U4 watchdog restart-now 原子子命令（prepare→树杀→首检拉起，DRYRUN 演练）；U5 跨宿主自动唤醒续跑实测（S5，sessionId+bootId 忙态 expr + restart-now）；全量 167/167 |
 | 4.3.0 | v1.9 | AutoIteration 实验 V3 收口（expr-2026-09-05_13-58-07，11 步全 approved）：docs/AUTO-ITERATION-ANALYSIS.md（完全自主三方协作自动迭代效果分析：6 观察点+数据+改进建议）；lessons 030/031（.test.js 命名陷阱、AutoIteration 声明机读 JSON 块）；全量 154/154 |
 | 4.2.0 | v1.9 | AutoIteration 实验 V2（expr-2026-09-05_13-58-07）：运维 SOP docs/OPS-RESTART-RESUME.md（架构/重启续跑机制/面板徽标/应急 SOP/命令）；client 续跑/熔断审计日志；client-restart.test 2 例（含命名修正）；全量 154/154 |
 | 4.1.0 | v1.9 | AutoIteration 实验 V1（expr-2026-09-05_13-58-07）：面板托管/续跑状态呈现——健康行 bootId 短显 + 回滚状态行重启续接徽标（↻ restartCount·自动续跑 / ⛔ 续跑熔断·已跨重启 N）；zh/en +4 键；纯 client 零后端改动；全量 152/152 |
