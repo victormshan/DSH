@@ -11,3 +11,6 @@ web-relay/traces/
 node_modules/
 
 # 会话分析临时脚本（如确需入库请显式添加）
+
+# watchdog 运行时单例锁
+bin/.watchdog.lock

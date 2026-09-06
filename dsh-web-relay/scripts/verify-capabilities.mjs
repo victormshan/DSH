@@ -1,18 +1,20 @@
 #!/usr/bin/env node
 // dsh-web-relay 能力注册表验证脚本
-// 用法: node scripts/verify-capabilities.mjs
+// 用法: node scripts/verify-capabilities.mjs [--update]
+//   --update: 校验全部通过后，把 registry.yaml 各条目 lastVerified 自动回写为当天日期（YYYY-MM-DD）
 // 检查:
 //   1. registry.yaml 存在且可读取
 //   2. 每条能力记录的 source/skill 文件存在
 //   3. 每条验证规则中的 file-exists 文件存在
 //   4. 每条验证规则中的 content-contains 能在对应文件中找到文本
 //   5. 能力 id 不重复
-import { readFileSync, existsSync } from 'node:fs'
+import { readFileSync, existsSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 const registryPath = join(root, 'docs', 'capabilities', 'registry.yaml')
+const withUpdate = process.argv.includes('--update')
 
 function fail(msg) {
   console.error('❌ ' + msg)
@@ -108,3 +110,20 @@ for (const rec of records) {
 }
 
 console.log('\n能力验证完成。')
+
+// U5: --update —— 全部通过时自动回写 lastVerified 为当天
+if (withUpdate) {
+  if (process.exitCode) {
+    console.error('❌ 校验存在失败，跳过 lastVerified 回写')
+    process.exit(1)
+  }
+  const today = new Date().toISOString().slice(0, 10)
+  const updated = registryText.replace(/(lastVerified:\s*)\S+/g, `$1${today}`)
+  if (updated !== registryText) {
+    writeFileSync(registryPath, updated, 'utf8')
+    const changed = (registryText.match(/lastVerified:/g) || []).length
+    console.log(`✅ lastVerified 自动回写完成（${changed} 处 → ${today}）`)
+  } else {
+    console.log(`✅ lastVerified 已是 ${today}，无需回写`)
+  }
+}
