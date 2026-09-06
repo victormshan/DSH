@@ -8,7 +8,7 @@
 ```
 tailscale serve (--bg 持久, https://win10-dt... → 127.0.0.1:3080)
         │
-DSH-WEB-Watchdog (计划任务 AtLogOn → dsh-web-watchdog.cmd → bin/watchdog.mjs)
+DSH-WEB-Watchdog (计划任务 AtLogOn → wscript 隐藏 → dsh-web-watchdog.vbs → dsh-web-watchdog.cmd → bin/watchdog.mjs)
    ├─ 托管宿主 dsh web（3080，子进程；miss≥3→prepare→树杀→拉起；首检 2s；单例锁）
    ├─ env 补注入：GEMINI_API_KEY（注册表 User→Machine 回读）、DSH_WEB_ARGS(--trusted-host)、DSH_RELAY_WORKSPACE
    └─ 总守护桥接：8899 掉线且 DSH-Bridge-Watchdog 未运行 → 自动拉起
@@ -48,6 +48,6 @@ Get-ScheduledTask DSH-WEB-Watchdog | Select State
 (Invoke-RestMethod 'http://127.0.0.1:3080/dsh-web-relay/health-check') | ConvertTo-Json  # bootId/preparing
 # 续跑扫描（手动）
 Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:3080/dsh-web-relay/admin/resume-scan' -ContentType 'application/json' -Body '{"workspacePath":"D:\\dsh relay test"}'
-# watchdog 日志
-Get-Content 'C:\Users\Administrator\.dsh\logs\dsh-web-watchdog.log' -Tail 20
+# watchdog 日志（UTF8 读取——日志文件为 UTF-8，避免 GBK 控制台乱码）
+Get-Content 'C:\Users\Administrator\.dsh\logs\dsh-web-watchdog.log' -Tail 20 -Encoding UTF8
 ```
