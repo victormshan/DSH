@@ -7,6 +7,9 @@
 // bootId 为空=旧版未打戳的 expr → 不误判）
 export function isExprInterrupted(state, currentBootId) {
   if (!state || !currentBootId) return false
+  // paused/stopped（已熔断/已叫停）不参与续跑扫描——即使 activeSteps 残留也不判忙，
+  // 防已熔断任务在每次宿主重启时 restartCount 无限 +1 并重复刷熔断日志（96-96-96 2→3 案例）
+  if (state.status === 'paused' || state.status === 'stopped') return false
   const busy = state.status === 'executing' || state.status === 'review' || (Array.isArray(state.activeSteps) && state.activeSteps.length > 0)
   const crossBoot = !!state.bootId && state.bootId !== currentBootId
   return busy && crossBoot

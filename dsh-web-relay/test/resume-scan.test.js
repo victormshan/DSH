@@ -18,6 +18,9 @@ test('isExprInterrupted：忙状态 + bootId 跨宿主才算中断', () => {
   assert.equal(isExprInterrupted(busyState(), BOOT_A), false)            // 同 boot（当前宿主写入）→ 不中断
   assert.equal(isExprInterrupted({ ...busyState(), bootId: null }, BOOT_B), false) // 旧版未打戳 → 不误判
   assert.equal(isExprInterrupted({ ...busyState(), status: 'approved', activeSteps: [] }, BOOT_B), false) // 非忙（approved+无活动步骤）→ 不误判
+  // v4.4.1-fix: paused/stopped（已熔断/已叫停）即使 activeSteps 残留也不判忙（96-96-96 restartCount 2→3 案例）
+  assert.equal(isExprInterrupted({ ...busyState(), status: 'paused', activeSteps: ['1'] }, BOOT_B), false)
+  assert.equal(isExprInterrupted({ ...busyState(), status: 'stopped', activeSteps: ['1'] }, BOOT_B), false)
   assert.equal(isExprInterrupted(null, BOOT_B), false)
 })
 
