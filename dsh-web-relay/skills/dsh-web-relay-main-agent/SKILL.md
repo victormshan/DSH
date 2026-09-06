@@ -1,3 +1,8 @@
+---
+name: dsh-web-relay-main-agent
+description: dsh-web-relay 主 agent 核心能力与调优规范——handoff/三方协作/Step List/自动迭代/版间门/收口。收到 dsh-web-relay 相关任务或需要执行插件协作流程时加载；未经验装配的裸对话应先读 registry 与 runbook。
+---
+
 # Skill: dsh-web-relay-main-agent
 
 > 用途：主 agent 收到 dsh-web-relay handoff 时，必须加载本 Skill。

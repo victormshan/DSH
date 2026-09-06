@@ -1,3 +1,8 @@
+---
+name: agent-tool-troubleshooting
+description: 工具/会话能力排障——主 agent 工具缺失、shell 不可用、命令执行失败、权限受限时加载；含 standard preset 与 pwsh 约束。
+---
+
 # Skill: agent-tool-troubleshooting
 
 > 用途：当主 agent 会话出现工具缺失、shell 不可用、命令执行失败时使用。

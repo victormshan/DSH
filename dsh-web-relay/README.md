@@ -96,6 +96,7 @@ git tag v0.7.0
 
 | 版本 | 协议 | 内容 |
 |---|---|---|
+| 4.8.0 | v1.9 | 能力持久化 4 条建议落地（expr-2026-09-06_15-10-42，外部 AI 排位 P1-P4）：cap_1 3 个 SKILL.md 补 YAML frontmatter → **harness 可用 skill 列表热读识别 3 技能**（裸新对话可 skill 加载能力）；cap_2 装配路径 env 化（REPO_ROOT = DSH_RELAY_REPO \|\| import.meta.url 上溯）；cap_3 export-capability-pack.mjs（skills 同步 ~/.dsh/skills + tar 打包 docs/skills/scripts → dist 能力包）；cap_4 SKILL 导引（未装配裸对话先读 registry/runbook）；全量 188/188 |
 | 4.7.0 | v1.9 | 续跑机制完善（外部 AI 排位 C→B，expr-2026-09-06_12-17-11）：isTest 逻辑归档（isTest+done 的 expr 续跑扫描跳过，scanBase 过滤 + 读写白名单）；多会话并发批量计划 planResumes（不同 sessionId 独立 queue 不冲突不丢，纯函数）；resume-scan.test +2（isScanEligible/planResumes）；全量 169/169 |
 | 4.6.0 | v1.9 | /health-check 暴露续跑统计 resumed{at,checked,resumed,paused,resumedExprs}（bootResumeScan 与 /admin/resume-scan 写入 lastResumeScan）——重启续跑可观测；迭代 2 版（v4.5.0→v4.6.0）后重启续跑演示 version=4.6.0 |
 | 4.4.1 | v1.9 | 运维收尾（2026-09-06）：watchdog 计划任务 wscript 隐藏 launcher（vbs 无窗口，修 Hidden 不阻 cmd 控制台）；RestartOnFailure（RestartCount5/PT1M）+ ExecutionTimeLimit=0（防 72h 被杀/强杀不复活）；bootResumeScan wake 成功打标 resumeQueuedAt（真实会话续跑验证载体）；lesson 033（编排严禁先杀 watchdog）；真实会话协作续跑完整测试通过（外部 AI 复核：验收 4 项+判定点全过，hello+三时间戳实测）；日志 UTF8 查看命令；33 lessons/全量 167/167 |

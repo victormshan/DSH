@@ -1597,14 +1597,19 @@ export function apply(ctx) {
   }
 
     // ---- 主 agent 装配：新会话被唤起时先读持久化能力文件 ----
+    // cap_2 (v4.8): 路径动态化——repoRoot = env DSH_RELAY_REPO || import.meta.url 上溯 lib/ 至仓库根
+    const REPO_ROOT = (process.env.DSH_RELAY_REPO && String(process.env.DSH_RELAY_REPO).trim())
+      ? String(process.env.DSH_RELAY_REPO).trim()
+      : fileURLToPath(new URL('..', import.meta.url)).replace(/[\\/]$/, '')
+    const rel = (...parts) => path.join(REPO_ROOT, ...parts)
     const MAIN_AGENT_ASSEMBLY = [
       '',
       '【主 agent 装配】请先阅读以下持久化能力文件：',
-      '- 执行手册: D:\\DSH\\dsh-web-relay\\docs\\main-agent-runbook-v0.1.md',
-      '- 能力索引: D:\\DSH\\dsh-web-relay\\docs\\capabilities\\registry.yaml',
-      '- 自动迭代建模: D:\\DSH\\dsh-web-relay\\skills\\auto-iteration-modeling\\SKILL.md',
-      '- 工具排障: D:\\DSH\\dsh-web-relay\\skills\\agent-tool-troubleshooting\\SKILL.md',
-      '- 主 agent Skill: D:\\DSH\\dsh-web-relay\\skills\\dsh-web-relay-main-agent\\SKILL.md'
+      `- 执行手册: ${rel('docs', 'main-agent-runbook-v0.1.md')}`,
+      `- 能力索引: ${rel('docs', 'capabilities', 'registry.yaml')}`,
+      `- 自动迭代建模: ${rel('skills', 'auto-iteration-modeling', 'SKILL.md')}`,
+      `- 工具排障: ${rel('skills', 'agent-tool-troubleshooting', 'SKILL.md')}`,
+      `- 主 agent Skill: ${rel('skills', 'dsh-web-relay-main-agent', 'SKILL.md')}`
     ].join('\n')
     // v4.4 U1: lessons.json 绝对路径（lib/ 同级 docs/）
     const LESSONS_JSON_PATH = fileURLToPath(new URL('../docs/main-agent-lessons.json', import.meta.url))

@@ -1,3 +1,8 @@
+---
+name: auto-iteration-modeling
+description: 自动版本迭代建模方法论——仅在用户要求自动迭代 N 个版本/多版本演进时加载；含版本建模、版间门、验收收口规范。
+---
+
 # Skill: auto-iteration-modeling
 
 > 用途：仅在 **自动版本迭代** 场景下使用。
