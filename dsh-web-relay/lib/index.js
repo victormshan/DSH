@@ -710,8 +710,8 @@ export function apply(ctx) {
       clip(recordText || '(无)', 4000),
       '',
       '【三方轨迹】',
-      clip(traceText || '(无)', 4000),
-      '排序说明：以上三方轨迹按时间正序排列，最新内容在末尾，请优先关注末尾的最新状态。',
+      tailClip(traceText || '(无)', 4000),
+      '排序说明：三方轨迹按时间正序，此处若超长已省略前部、只显示【末尾最新】状态；证据优先看末尾。',
       '',
       '审核要点：',
       '- 优先依据该步 notes 与轨迹追加日志判断执行证据；若 artifact_required 为 false，不要因缺少实体文件而打回。',
@@ -1073,6 +1073,13 @@ export function apply(ctx) {
   const clip = (s, n) => {
     const t = String(s || '')
     return t.length > n ? t.slice(0, n) + '…' : t
+  }
+  // v4.9.1-fix: 尾部优先截断（审核上下文）——三方轨迹时间正序、最新证据在末尾，
+  // 头截断在长 trace 时把最新状态（打回意见/重提证据/仲裁记录）全部丢弃导致审方误拒（v9_4 事故根因）。
+  const tailClip = (s, n) => {
+    const t = String(s || '')
+    if (t.length <= n) return t
+    return '…（前部省略 ' + (t.length - n) + ' 字符，以下为时间正序轨迹的【末尾最新】' + n + ' 字符）\n' + t.slice(-n)
   }
 
   // ---------- server-side instruction parsing (single authority) ----------
@@ -2910,10 +2917,10 @@ export function apply(ctx) {
           stepTitle: step.title,
           stepDetail: step.detail || '',
           acceptance: step.acceptance || '',
-          artifactsSummary: artifactsSummary || '',
-          recordText: recordText || '',
-          traceText: traceText || '',
-          notesText: JSON.stringify(step.notes || []).slice(0, 4000)
+          artifactsSummary: tailClip(artifactsSummary || '', 3500),   // v4.9.1-fix: 尾部优先（最新产物证据）
+          recordText: clip(recordText || '', 3500),                    // record 固定短，头截即可
+          traceText: tailClip(traceText || '', 3500),                  // v4.9.1-fix: trace 尾部最新优先
+          notesText: tailClip(JSON.stringify(step.notes || []), 3500)  // v4.9.1-fix: notes 尾部 = 最新 complete/reject 记录
         })
         const queuePath = path.join(CC_TASKS_ROOT, 'queue', `${task.taskId}.task.json`)
         await nodeFsImpl.writeFile(queuePath, JSON.stringify(task, null, 2))

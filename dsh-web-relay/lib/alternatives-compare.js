@@ -11,6 +11,12 @@ const clip = (s, n) => {
   const t = String(s || '')
   return t.length > n ? t.slice(0, n) + '…(截断)' : t
 }
+// v4.9.1-fix: 尾部优先截断（trace 时间正序、最新证据在末尾；头截丢最新状态曾致审方误拒）
+const tailClip = (s, n) => {
+  const t = String(s || '')
+  if (t.length <= n) return t
+  return '…（前部省略 ' + (t.length - n) + ' 字符，以下为末尾最新）\n' + t.slice(-n)
+}
 
 /**
  * 规范化 alternatives 列表（容错：非数组→[]；元素非对象→字符串包装）。
@@ -76,13 +82,14 @@ export function buildAlternativesReviewPrompt({ exprId, step, recordText, traceT
     '【执行证据（④）】',
     evidence,
     '',
-    artifactsSummary ? `【产物摘要（④）】\n${clip(artifactsSummary, 4000)}` : '',
+    artifactsSummary ? `【产物摘要（④）】\n${tailClip(artifactsSummary, 4000)}` : '',
     '',
     '【任务记录摘要（⑤）】',
     clip(recordText || '(无)', 3000),
     '',
     '【三方轨迹（⑤）】',
-    clip(traceText || '(无)', 3000),
+    tailClip(traceText || '(无)', 3000),
+    '排序说明：三方轨迹按时间正序，此处若超长只显示末尾最新状态。',
     '排序说明：三方轨迹按时间正序，最新在末尾，请优先关注末尾最新状态。',
     '',
     '【决策要求（⑥）】',
