@@ -40,4 +40,32 @@ description: dsh-web-relay 主 agent 核心能力与调优规范——handoff/�
 - 版本延续 v3.x
 - 三副本同步
 - 全量测试通过后再发布
-- 重启 dsh 是用户动作
+- 重启宿主 = 主 agent 自主操作（kill-host / restart-now，见 §5），非仅用户动作
+
+## 5. 宿主重启与续跑自检（v4.9.1 固化）
+
+主 agent **具备自主重启宿主能力**，三选一：
+
+1. 常驻 watchdog 在跑（计划任务 DSH-WEB-Watchdog 或手动实例，单例锁被其持有）→
+   `node D:\DSH\dsh-web-relay\bin\watchdog.mjs kill-host`
+   树杀 3080 宿主（不持锁），watchdog 探测 miss≥3 后自愈拉起新宿主（补注入注册表 GEMINI_API_KEY/GEMINI_MODEL）。
+   DRYRUN 演练：`$env:DSH_WEB_DRYRUN='1'` 后同命令（只打日志不执行）。
+2. 无常驻 watchdog（首次部署/守护丢失）→
+   `node D:\DSH\dsh-web-relay\bin\watchdog.mjs restart-now`
+   （自持单例锁：prepare → 树杀 → 进入监控首检拉起，成为新 watchdog）。
+3. 用户手动重启（面板/任务管理器）——仅作为兜底。
+
+纪律（lesson 032/033）：重启编排必须走**独立延迟进程**（`Start-Process powershell -WindowStyle Hidden` + sleep 10-12s，
+避免树杀命令本身被 harness 中断）；严禁先杀 watchdog；树杀宿主会断当前 agent 回合 → 编排放回合最后动作，下回合验证。
+操作后验证：/status version 更新 + /health-check bootId 变化 + watchdog 日志新行。
+
+续跑语义（重启后自动）：
+- 宿主启动跑 bootResumeScan：跨 bootId 且忙态（executing/review/activeSteps 非空）expr → restartCount+1；
+  paused/stopped 排除（熔断不自动续跑，防 96-96-96 死循环）；restartCount≥2 熔断 paused。
+- 有 sessionId 的 expr → resumeHandoff 注入 wakeMainAgent（自动新回合续跑）；
+  sessionId=null（无注入渠道）→ 只留痕（resume 记录 + restartCount），主 agent 靠新回合/goal 推进（需用户提问或下一回合激活）。
+- 续跑动作：executing → 先 git 检查残改再续；review → 重触发 /steps/auto-review；全 approved → finalize 收口；
+  rejectStreak/iterationBaseCommit 跨重启保持勿重置。
+- 健康自检：GET /health-check → bootId + resumed{at,checked,resumed,paused}；GET /status → version/geminiConfigured。
+- 审核上下文注意（lesson 035）：三方轨迹时间正序、最新证据在末尾——审核/cc 派发/alternatives 上下文已 tailClip
+  尾部优先截断；手工给审方贴证据时勿头截长文本。
