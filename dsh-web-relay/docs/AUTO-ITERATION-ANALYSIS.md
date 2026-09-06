@@ -81,6 +81,16 @@ v4.0 重启续跑机制的**开发与 E2E 阶段**（本实验前）发生多次
 2. 缓解措施（已部分落地）：watchdog 单例锁 + 首检（手动兜底也安全）；launcher ASCII + env 注入；树杀编排改为「回合最后动作」。待改进：重启编排子命令化/交接原子化（lesson 032 建议 + §五 改进 2）。
 3. 结论修正：「完全自主」的成立条件是**主题不触发 lib 重启**（三轮如此）；涉及宿主换代的工作仍可能打断 agent 回合 → 需要用户一句「继续」或 watchdog 完全接管重启动作编排。
 
+## 八、真实会话协作续跑完整测试（v4.4，2026-09-06 外部 AI 复核通过）
+
+**测试**：种子 expr-2026-09-06_00-00-42（executing + 真实会话 session-3da39db3 + bootId 跨代）→ 树杀宿主 → watchdog 自愈（不动 watchdog 的纯自愈链路）→ bootResumeScan 检测 → wakeMainAgent queue → **零人工介入**收到续跑 handoff → agent 自动输出 hello + 三时间戳 → complete → finalize。
+
+**三时间（watchdog 日志实测）**：dsh down=02:02:26.453Z（首 miss）；拉起宿主=02:02:38.656Z；宿主恢复=02:02:51.535Z；续跑唤起（Session wake queued/resumeQueuedAt）=02:02:45.970Z。
+
+**外部 AI 复核（独立审方）**：验收 4 项全通过（日志证据/resumeQueuedAt+done/finalized/迹线含续跑完成/零人类介入）；判定点 1+2 通过；旧 fixture restartCount=2 熔断 paused（防死循环生效）。**总体结论：完整通过，具备上线稳定性。**
+
+**外部 AI 补充建议（roadmap）**：① 记录 handoffReceivedAt 并监控 resumeQueuedAt→到达时差（队列投递时延）；② 测试种子 expr 加 isTest 标记与自动清理策略；③ 多会话并发 executing 同时重启的队列并发/资源锁补测。
+
 ## 六、数据来源
 
 - expr-2026-09-05_13-58-07.steps.json（11 步 approved、iterations=3、currentIteration=3）
