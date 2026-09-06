@@ -278,6 +278,9 @@
     - content-contains:
         file: docs/CC-HYBRID.md
         text: "refs 共享引用污染"
+    - content-contains:
+        file: docs/CC-HYBRID.md
+        text: "混合架构特性演进验收协议"
     - file-exists: lib/cc-task-schema.mjs
   lastVerified: 2026-09-06
   status: approved

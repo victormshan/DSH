@@ -48,3 +48,30 @@ kind 支持（语义澄清，cc-understand-hybrid 复盘 2026-09-06 修订）：
 - Pro 订阅自动化配额有限：任务拆分 ≤ 数十分钟/个，连续派发留窗口；大实现优先，日常审方仍可用 gemini（省配额）。
 - ToS：仅本机个人研究，禁止商业化代理。
 - 审方价值实证：POC-3 Claude 审出 refs 共享引用污染（真实运行时缺陷，跨调用状态泄漏），证明高质审方可补主 agent+单测盲区。
+
+## 4. 混合架构特性演进验收协议（Understand-Hybrid Protocol v1.0，外部 AI 定稿 2026-09-06 expr-16-27-44）
+
+### §1 触发时机
+- 强制：混合架构重大特性落地（拓扑/runner 调度变更）；核心契约或 API 语义修订（kind 语义、acceptEdits 行为、任务状态机）。
+- 可选/跳过：样式修饰、措辞微调、无语义 Bug 修复（走常规 Step 审核）。
+
+### §2 流程五步法（责任与配额）
+1. 派发（主 agent）：D:\cc-tasks 发 kind=understand 任务，明确机制边界与重点核查项。
+2. Claude 自述：按文档自述理解；未经查证的推理**必须标 [推测]**，禁硬猜。限额单次交互，超时 120s 视为失败→降级文档硬核对（Pro 配额保护）。
+3. 偏差分析（主 agent）：逐节核对表 + git/代码交叉验证 + 危害判定。
+4. 外部 AI 裁决：审偏差报告，仲裁=改文档/忽略/吸收为机制缺口。
+5. 落地闭环（主 agent）：按裁决修订 + 新语义误区沉淀。
+
+### §3 偏差判定与出口
+- 高危（颠覆性误解/越界/死锁）→ **阻断发布**，修文档/提示词重测至通过。
+- 中危（非主干误读）→ 外部 AI 裁决本轮修或记为已知限制。
+- 低危（措辞/合理推测）→ 记录并忽略。
+- Gap 去向：语义债→本轮改文档；机制缺口→登记下轮 v4.x 候选；流程瑕疵→优化 cc-tasks 契约模板。
+
+### §4 与三方链/Lessons 衔接
+- 理解测试 = 重大特性交付前**阶段门禁**：通过 + 外部 AI 裁决收口后，相关 Step List 才允许最终 Complete/Approved。
+- 高频误读/隐晦语义（kind 借用、acceptEdits 误读）强制入库（CC-HYBRID 误区节或 lessons），防重复踩坑。
+
+### §5 归档与登记
+- 本协议即 CC-HYBRID §4（Active v1.0）；registry cc-hybrid-claude-code 条目 verification 含本协议关键词。
+- 验证入口：node scripts/verify-capabilities.mjs（cc-hybrid-claude-code 条目含「混合架构特性演进验收协议」content 校验）。
