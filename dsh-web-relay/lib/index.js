@@ -25,7 +25,7 @@ import { checkL1Gate, runL2ShadowGate, shouldUseShadow, resolveRepoPath, runShad
 // v3.8 Step3: 回滚后步骤状态复位策略（纯函数，见 lib/rollback-state.js）
 import { applyRollbackReset, markRollbackDegraded } from './rollback-state.js'
 // v4.0 Step1-3: 宿主重启续跑（纯函数决策，见 lib/resume-scan.js）
-import { isExprInterrupted, resumeAction, resumeHandoff } from './resume-scan.js'
+import { isExprInterrupted, resumeAction, resumeHandoff, isScanEligible } from './resume-scan.js'
 // v4.4 U3: AutoIteration 声明解析（可测重构 + 顺序无关/引号容忍兜底，见 lib/autoiter-decl.js）
 import { extractAutoIterDecl as extractAutoIterDeclLib } from './autoiter-decl.js'
 // v4.4 U1: Lesson Top-K 触发注入（见 lib/lessons-inject.js）
@@ -1460,7 +1460,8 @@ export function apply(ctx) {
           sessionId: data.sessionId || null,
           bootId: data.bootId || null,
           restartCount: data.restartCount || 0,
-          resumeQueuedAt: data.resumeQueuedAt || null }
+          resumeQueuedAt: data.resumeQueuedAt || null,
+          isTest: data.isTest === true }
       } catch (err) { /* no state yet */ }
       return { exprId, steps: [], currentStep: null, status: 'open', phase: 'planning', architectNotes: null, contextRequests: [], autoReview: false, stopReason: null, stoppedAt: null, finalized: false, finalizedAt: null, finalSummary: null, protocolVersion: 'v1.5', activeSteps: [], iterations: 1, currentIteration: 1, finalAcceptance: null, autoDecision: false, rejectStreak: 0, incrementalStreak: 0, iterationBaseCommit: null, rolledBackAt: null, rollbackBase: null, rollbackSteps: 0, rollbackDegraded: null, sessionId: null, bootId: null, restartCount: 0, resumeQueuedAt: null }
     }
@@ -1497,11 +1498,12 @@ export function apply(ctx) {
           rollbackBase: state.rollbackBase || null,
           rollbackSteps: state.rollbackSteps || 0,
           rollbackDegraded: state.rollbackDegraded || null,
-          // v4.0 Step1（重启续跑）: sessionId 透传；bootId 打当前宿主戳（重启检测依据）；restartCount 透传；v4.4 续跑测试: resumeQueuedAt
+          // v4.0 Step1（重启续跑）: sessionId 透传；bootId 打当前宿主戳（重启检测依据）；restartCount 透传；v4.4 续跑测试: resumeQueuedAt；v4.7: isTest
           sessionId: state.sessionId || null,
           bootId: CURRENT_BOOT_ID,
           restartCount: state.restartCount || 0,
           resumeQueuedAt: state.resumeQueuedAt || null,
+          isTest: state.isTest === true,
         updatedAt: new Date().toISOString()
       }
       await fs.writeText(target, JSON.stringify(payload, null, 2), undefined, undefined, safePolicy)
@@ -1673,6 +1675,7 @@ export function apply(ctx) {
       const exprId = f.name.replace(/\.steps\.json$/, '')
       try {
         const st = await readStepState(base, exprId)
+        if (!isScanEligible(st)) continue // v4.7: isTest 且已完成 → 逻辑归档跳过（不 wake 不计数）
         const dec = resumeAction(st, CURRENT_BOOT_ID, { maxRestarts: RESUME_MAX_RESTARTS })
         if (dec.action === 'none') continue
         st.restartCount = dec.restartCount

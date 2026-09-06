@@ -96,6 +96,8 @@ git tag v0.7.0
 
 | 版本 | 协议 | 内容 |
 |---|---|---|
+| 4.7.0 | v1.9 | 续跑机制完善（外部 AI 排位 C→B，expr-2026-09-06_12-17-11）：isTest 逻辑归档（isTest+done 的 expr 续跑扫描跳过，scanBase 过滤 + 读写白名单）；多会话并发批量计划 planResumes（不同 sessionId 独立 queue 不冲突不丢，纯函数）；resume-scan.test +2（isScanEligible/planResumes）；全量 169/169 |
+| 4.6.0 | v1.9 | /health-check 暴露续跑统计 resumed{at,checked,resumed,paused,resumedExprs}（bootResumeScan 与 /admin/resume-scan 写入 lastResumeScan）——重启续跑可观测；迭代 2 版（v4.5.0→v4.6.0）后重启续跑演示 version=4.6.0 |
 | 4.4.1 | v1.9 | 运维收尾（2026-09-06）：watchdog 计划任务 wscript 隐藏 launcher（vbs 无窗口，修 Hidden 不阻 cmd 控制台）；RestartOnFailure（RestartCount5/PT1M）+ ExecutionTimeLimit=0（防 72h 被杀/强杀不复活）；bootResumeScan wake 成功打标 resumeQueuedAt（真实会话续跑验证载体）；lesson 033（编排严禁先杀 watchdog）；真实会话协作续跑完整测试通过（外部 AI 复核：验收 4 项+判定点全过，hello+三时间戳实测）；日志 UTF8 查看命令；33 lessons/全量 167/167 |
 | 4.4.0 | v1.9 | 能力持久化未决 5 项闭环（expr-2026-09-05_14-50-07，S1-S5 external approved）：U5 verify --update 自动回写 lastVerified（14 条）；U3 AutoIteration 声明解析兜底（lib/autoiter-decl.js 重构：JSON 字段序无关 + 引号容忍叙述/中文，auto-iter-decl.test 6 例）；U1 Lesson Top-K 触发注入（lib/lessons-inject.js bigram 打分，wake 装配按触发词注入 Top 教训，lessons-inject.test 6 例）；U4 watchdog restart-now 原子子命令（prepare→树杀→首检拉起，DRYRUN 演练）；U5 跨宿主自动唤醒续跑实测（S5，sessionId+bootId 忙态 expr + restart-now）；全量 167/167 |
 | 4.3.0 | v1.9 | AutoIteration 实验 V3 收口（expr-2026-09-05_13-58-07，11 步全 approved）：docs/AUTO-ITERATION-ANALYSIS.md（完全自主三方协作自动迭代效果分析：6 观察点+数据+改进建议）；lessons 030/031（.test.js 命名陷阱、AutoIteration 声明机读 JSON 块）；全量 154/154 |

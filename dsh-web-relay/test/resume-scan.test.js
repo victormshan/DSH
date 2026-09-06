@@ -3,7 +3,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
-import { isExprInterrupted, resumeAction, resumeHandoff } from '../lib/resume-scan.js'
+import { isExprInterrupted, resumeAction, resumeHandoff, isScanEligible, planResumes } from '../lib/resume-scan.js'
 
 const BOOT_A = 'boot-A'
 const BOOT_B = 'boot-B'
@@ -53,4 +53,32 @@ test('source 标记：lib/index.js 接线（v4.0 重启续跑）', () => {
   assert.ok(src.includes("'/dsh-web-relay/admin/resume-scan'"))
   assert.ok(src.includes('resumeScanBases'))                         // 候选基准（env > sandbox > cwd）
   assert.ok(src.includes('DSH_RELAY_WORKSPACE'))
+  // v4.7 接线：isTest 逻辑归档过滤 + 白名单
+  assert.ok(src.includes('isScanEligible(st)'))
+  assert.ok(src.includes('isTest: data.isTest === true'))
+  assert.ok(src.includes('isTest: state.isTest === true'))
+})
+
+// ---- v4.7.0 (v7_1/v7_2/v7_3): isTest 归档 + 多会话并发批量计划 ----
+test('isScanEligible：isTest 且已完成 → 跳过（逻辑归档）；其他照常', () => {
+  const done = { isTest: true, status: 'done', finalized: true }
+  assert.equal(isScanEligible(done), false)
+  assert.equal(isScanEligible({ isTest: true, status: 'done', finalized: false }), false)
+  assert.equal(isScanEligible({ isTest: true, status: 'executing', finalized: false }), true)  // isTest 进行中仍可续
+  assert.equal(isScanEligible({ isTest: false, status: 'done' }), true)                        // 业务 done 由状态机跳过
+  assert.equal(isScanEligible(null), false)
+})
+
+test('planResumes：多 expr（不同 sessionId）跨 boot 全处理不丢、顺序保持、isTest-done 排除', () => {
+  const states = [
+    { exprId: 'e1', sessionId: 'sess-A', status: 'executing', activeSteps: ['1'], bootId: BOOT_A },
+    { exprId: 'e2', sessionId: 'sess-B', status: 'review', bootId: BOOT_A },
+    { exprId: 'e3', sessionId: 'sess-A', status: 'executing', bootId: BOOT_A, isTest: true },
+    { exprId: 'e4', sessionId: 'sess-B', status: 'done', finalized: true, bootId: BOOT_A, isTest: true }
+  ]
+  const plan = planResumes(states, BOOT_B)
+  assert.deepEqual(plan.map((p) => p.exprId), ['e1', 'e2', 'e3']) // e4 isTest-done 排除；顺序保持不丢
+  assert.equal(plan.length, 3)
+  assert.ok(plan.every((p) => p.action === 'resume' && p.restartCount === 1))
+  assert.deepEqual(plan.map((p) => p.sessionId), ['sess-A', 'sess-B', 'sess-A']) // 不同会话独立不冲突
 })

@@ -23,6 +23,27 @@ export function resumeAction(state, currentBootId, { maxRestarts = 2 } = {}) {
   return { action: 'resume', restartCount }
 }
 
+// v4.7.0 (v7_2): 续跑扫描候选过滤——isTest 且已完成（done/finalized）的 expr 视为已归档，
+// 不再参与续跑扫描（等效逻辑归档；插件 fs 无删除/移动 API，物理清理受限留档）
+export function isScanEligible(state) {
+  if (!state) return false
+  if (state.isTest === true && (state.status === 'done' || state.status === 'finalized' || state.finalized === true)) return false
+  return true
+}
+
+// v4.7.0 (v7_1/v7_3): 批量计划——对候选 expr 列表逐个决策，返回不丢顺序的决策数组
+// （多会话并发续跑：不同 sessionId 各自独立 queue，无共享可变状态 → 逐个处理即安全无锁冲突）
+export function planResumes(states, currentBootId, { maxRestarts = 2 } = {}) {
+  const out = []
+  for (const st of Array.isArray(states) ? states : []) {
+    if (!st || !st.exprId) continue
+    if (!isScanEligible(st)) continue
+    const dec = resumeAction(st, currentBootId, { maxRestarts })
+    if (dec.action !== 'none') out.push({ exprId: st.exprId, sessionId: st.sessionId || null, action: dec.action, restartCount: dec.restartCount })
+  }
+  return out
+}
+
 // resume/pause 用的 handoff 文案（供 wakeMainAgent）
 export function resumeHandoff(state, exprId) {
   const step = Array.isArray(state.steps) ? state.steps.find((s) => s.status === 'executing' || s.status === 'review') : null
