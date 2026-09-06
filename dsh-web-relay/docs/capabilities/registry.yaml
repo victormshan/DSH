@@ -296,7 +296,7 @@
   scope: protocol-evolution
   source: lib/index.js
   skill: null
-  trigger: v4.9+ 协议语义查询/实现（审核降级链 v2.0 顺序、alternatives 裁决端点、batchStepIds 并发语义、429 退避）
+  trigger: v4.9+ 协议语义查询/实现（审核降级链 v2.0 顺序、alternatives 裁决端点、batchStepIds 并发语义、429 退避、审核上下文 tailClip 尾部截断）
   conflicts: []
   verification:
     - file-exists: lib/cc-channel.js
@@ -310,8 +310,34 @@
     - content-contains:
         file: lib/index.js
         text: "批量并发审核 v2.0"
+    - content-contains:
+        file: lib/index.js
+        text: "tailClip"
     - file-exists: test/cc-channel.test.js
     - file-exists: test/alternatives-compare.test.js
+  lastVerified: 2026-09-07
+  status: approved
+  version: 2
+
+- id: host-self-restart-resume
+  name: 主 agent 自主重启宿主与续跑自检（kill-host / restart-now + bootResumeScan 语义）
+  category: platform
+  scope: host-ops-resume
+  source: bin/watchdog.mjs
+  skill: skills/dsh-web-relay-main-agent/SKILL.md
+  trigger: 主 agent 需重启宿主（有常驻 watchdog → kill-host；无常驻 → restart-now）、重启后续跑自检（/health-check bootId+resumed）、审核上下文 tailClip 截断注意
+  conflicts: []
+  verification:
+    - file-exists: bin/watchdog.mjs
+    - content-contains:
+        file: bin/watchdog.mjs
+        text: "kill-host"
+    - content-contains:
+        file: skills/dsh-web-relay-main-agent/SKILL.md
+        text: "宿主重启与续跑自检"
+    - content-contains:
+        file: docs/OPS-RESTART-RESUME.md
+        text: "bootId"
   lastVerified: 2026-09-07
   status: approved
   version: 1
