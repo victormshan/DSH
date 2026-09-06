@@ -19,7 +19,7 @@
     - content-contains:
         file: skills/auto-iteration-modeling/SKILL.md
         text: "Step 0"
-  lastVerified: 2026-09-02
+  lastVerified: 2026-09-06
   status: approved
   version: 1
 
@@ -36,7 +36,7 @@
     - content-contains:
         file: docs/main-agent-runbook-v0.1.md
         text: "全局执行纪律"
-  lastVerified: 2026-09-03
+  lastVerified: 2026-09-06
   status: approved
   version: 1
 
@@ -54,7 +54,7 @@
         file: docs/main-agent-lesson-schema-v0.1.md
         text: "条目 Schema"
     - file-exists: docs/main-agent-lessons.json
-  lastVerified: 2026-09-04
+  lastVerified: 2026-09-06
   status: approved
   version: 1
 
@@ -71,7 +71,7 @@
     - content-contains:
         file: docs/capability-persistence-design.md
         text: "文档同步与更新机制"
-  lastVerified: 2026-09-02
+  lastVerified: 2026-09-06
   status: approved
   version: 1
 
@@ -89,7 +89,7 @@
     - content-contains:
         file: skills/agent-tool-troubleshooting/SKILL.md
         text: "standard"
-  lastVerified: 2026-09-02
+  lastVerified: 2026-09-06
   status: approved
   version: 1
 
@@ -108,7 +108,7 @@
         file: docs/main-agent-auto-iteration-capabilities.md
         text: "能力清单"
     - file-exists: skills/dsh-web-relay-main-agent/SKILL.md
-  lastVerified: 2026-09-03
+  lastVerified: 2026-09-06
   status: approved
   version: 1
 
@@ -125,7 +125,7 @@
     - content-contains:
         file: docs/main-agent-auto-iteration-capabilities.md
         text: "影子试错沙盒（Shadow Trial Sandbox）"
-  lastVerified: 2026-09-04
+  lastVerified: 2026-09-06
   status: approved
   version: 1
 
@@ -142,7 +142,7 @@
     - content-contains:
         file: docs/main-agent-auto-iteration-capabilities.md
         text: "Prompt 自主进化案例库（Prompt-case-library，轻量反思）"
-  lastVerified: 2026-09-04
+  lastVerified: 2026-09-06
   status: approved
   version: 1
 
@@ -159,7 +159,7 @@
     - content-contains:
         file: docs/main-agent-auto-iteration-capabilities.md
         text: "Swarm 双角色盲审（Security-Auditor + Refactoring-Architect）"
-  lastVerified: 2026-09-04
+  lastVerified: 2026-09-06
   status: approved
   version: 1
 
@@ -176,7 +176,7 @@
     - content-contains:
         file: docs/main-agent-auto-iteration-capabilities.md
         text: "Architect 突破度三阶评估（Incremental/Structural/Paradigm）"
-  lastVerified: 2026-09-04
+  lastVerified: 2026-09-06
   status: approved
   version: 1
 
@@ -196,7 +196,7 @@
     - content-contains:
         file: docs/main-agent-auto-iteration-capabilities.md
         text: "Claude API 通道"
-  lastVerified: 2026-09-04
+  lastVerified: 2026-09-06
   status: approved
   version: 1
 
@@ -216,7 +216,7 @@
     - content-contains:
         file: docs/main-agent-auto-iteration-capabilities.md
         text: "reviewChannel 通道选择器"
-  lastVerified: 2026-09-04
+  lastVerified: 2026-09-06
   status: approved
   version: 1
 
@@ -237,7 +237,7 @@
         file: docs/OPS-RESTART-RESUME.md
         text: "重启续跑熔断"
     - file-exists: docs/AUTO-ITERATION-ANALYSIS.md
-  lastVerified: 2026-09-05
+  lastVerified: 2026-09-06
   status: approved
   version: 1
 
@@ -258,6 +258,27 @@
         file: docs/AUTO-ITERATION-ANALYSIS.md
         text: "重启账目"
     - file-exists: docs/OPS-RESTART-RESUME.md
-  lastVerified: 2026-09-05
+  lastVerified: 2026-09-06
+  status: approved
+  version: 1
+
+- id: cc-hybrid-claude-code
+  name: Claude Code 混合架构（WSL 订阅 headless 实现/审方 + 降级）
+  category: platform
+  scope: hybrid-execution
+  source: docs/CC-HYBRID.md
+  skill: null
+  trigger: 混合架构派发实现/审方任务给 Claude Code（D:\cc-tasks 目录契约 + runner/cc-watchdog）、cc 不可用降级回主 agent 单一架构
+  conflicts: []
+  verification:
+    - file-exists: docs/CC-HYBRID.md
+    - content-contains:
+        file: docs/CC-HYBRID.md
+        text: "降级策略"
+    - content-contains:
+        file: docs/CC-HYBRID.md
+        text: "refs 共享引用污染"
+    - file-exists: lib/cc-task-schema.mjs
+  lastVerified: 2026-09-06
   status: approved
   version: 1
