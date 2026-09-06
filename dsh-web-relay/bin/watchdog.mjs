@@ -286,6 +286,26 @@ async function auxBridgeTick() {
 // 仅作为 CLI 主入口运行时启动（被测试 import 时不执行）
 const isMain = process.argv[1] && import.meta.url === new URL(`file://${process.argv[1].replace(/\\/g, '/')}`).href
 if (isMain) {
+  // v4.9.1: kill-host 子命令——仅树杀 3080 宿主（不 acquireLock；常驻 watchdog 探测 miss 后自愈拉起新宿主）。
+  // 主 agent/面板「重启宿主」的工具化入口（替代每次手写 taskkill 编排脚本）；DRYRUN 演练同 restart-now。
+  const killHost = process.argv[2] === 'kill-host'
+  if (killHost) {
+    if (CFG.dryRun) {
+      log(`[DRYRUN][kill-host] 将执行：POST /admin/prepare-restart → 树杀 3080 宿主（常驻 watchdog 探测 miss≥${CFG.missN} 后自愈拉起；不实际执行）`)
+    } else {
+      log('[kill-host] 触发优雅停机准备（/admin/prepare-restart）…')
+      prepareBestEffort()
+      await new Promise((r) => setTimeout(r, 600)) // 等待 prepare 生效（落盘/停新任务）
+      const pid = findPortPid()
+      if (pid) {
+        log(`[kill-host] 树杀当前宿主 PID=${pid}（watchdog 将探测自愈拉起）`)
+        killPidTree(pid)
+      } else {
+        log('[kill-host] 未发现 3080 宿主进程（可能已不在线）')
+      }
+    }
+    process.exit(0)
+  }
   if (!acquireLock()) process.exit(0) // 单例锁：已有实例则退出
   const restartNow = process.argv[2] === 'restart-now'
   if (restartNow) {
