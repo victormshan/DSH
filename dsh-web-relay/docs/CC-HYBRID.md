@@ -22,7 +22,12 @@ Claude Code (WSL, Pro 订阅)  → 产出 out/ + done.flag → result.json {stat
 校验（node --check/test/验收）→ 合入 repo → 三方/混合闭环
 ```
 
-kind 支持：implement（大块实现）/ review（评审，输出 review.md 结论 APPROVED/REJECTED + 逐条意见）。
+kind 支持（语义澄清，cc-understand-hybrid 复盘 2026-09-06 修订）：
+- implement（大块实现）
+- review（评审，输出 review.md 结论 APPROVED/REJECTED + 逐条意见）
+- understand（理解自述/架构探路型——如"通知 Claude 关于混合架构并请其自述理解"，输出 understanding.md；消除借用 review 的语义债）
+
+**权限界限（裁决修订）**：`--permission-mode acceptEdits` **仅**=自动接受文件编辑/改动；**不等于**免批命令行工具。命令执行放宽依赖 `--allowedTools "Read,Write,Bash"`（headless 会话 Bash 放行）。两者权责分离——禁止将 acceptEdits 解读为"免批命令"（防不安全假设）。runner 唤起语已收敛为最小引导（仅指向 task.json），避免与契约内 prompt 职责重叠。
 
 ## 2. 降级策略（混合架构失败 → 主 agent 单一实现架构）
 
