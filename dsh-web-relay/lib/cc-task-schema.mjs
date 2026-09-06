@@ -1,4 +1,4 @@
-/**
+﻿/**
  * cc-task 契约解析/校验模块。
  * 提供 parseTask（解析任务契约）与 validateResult（校验执行结果）两个纯函数。
  */
@@ -28,12 +28,12 @@ export function parseTask(textOrObj) {
     try {
       obj = JSON.parse(textOrObj);
     } catch {
-      return { ...TASK_DEFAULTS };
+      return { ...TASK_DEFAULTS, refs: [] };
     }
   }
 
   if (typeof obj !== "object" || obj === null || Array.isArray(obj)) {
-    return { ...TASK_DEFAULTS };
+    return { ...TASK_DEFAULTS, refs: [] };
   }
 
   return {
@@ -47,7 +47,7 @@ export function parseTask(textOrObj) {
         : TASK_DEFAULTS.kind,
     title: typeof obj.title === "string" ? obj.title : TASK_DEFAULTS.title,
     prompt: typeof obj.prompt === "string" ? obj.prompt : TASK_DEFAULTS.prompt,
-    refs: Array.isArray(obj.refs) ? obj.refs : [...TASK_DEFAULTS.refs],
+    refs: Array.isArray(obj.refs) ? [...obj.refs] : [], // POC-3 审方修复: 防御拷贝，杜绝共享引用/别名联动
     acceptance:
       typeof obj.acceptance === "string"
         ? obj.acceptance
