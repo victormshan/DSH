@@ -2,7 +2,7 @@
   "meta": {
     "schemaVersion": "0.1",
     "title": "dsh-web-relay 主 agent 语境能力 lesson 库（机器可读）",
-    "updatedAt": "2026-09-07T00:40:00.000Z",
+    "updatedAt": "2026-09-07T02:10:00.000Z",
     "carrierOf": "docs/main-agent-lesson-schema-v0.1.md",
     "statusConvention": "proposed（主 agent 产出）→ approved / in-runbook（用户或外部 AI 确认，记 confirmedBy/confirmedAt）；in-runbook=要点已并入 main-agent-runbook 正文；superseded=内容已并入他条（扩展值，机器消费时应跳过）",
     "confirmedAt": "2026-09-04T13:14:35.897Z",
@@ -577,6 +577,24 @@
         "L-2026-0906-033"
       ],
       "recordedAt": "2026-09-07T00:40:00.000Z"
+    },
+    {
+      "id": "L-2026-0907-035",
+      "title": "审核上下文长文截断必须尾部优先（tailClip）：三方轨迹时间正序、最新证据在末尾，头截 4000 会丢打回意见/重提证据/仲裁记录 → 审方基于旧状态误拒",
+      "category": "engineering-action",
+      "layer": "L2",
+      "trigger": "长 trace / 长 notes / 多次打回重提的 expr 审核（buildReviewPrompt trace 段、cc 派发 notesText/traceText、alternatives trace）——凡给审方的上下文含时间序列文本且需截断时",
+      "decision": "时间正序的上下文（三方轨迹、notes 追加日志）一律尾部优先截断：tailClip(s,n) 取末尾 n 字符 + 前置省略说明；头部截断只适用于固定短文本（任务记录、record）。审核 prompt 内注明「若超长已省略前部，只显示末尾最新」。lib/index.js 三处（buildReviewPrompt trace、runCcReviewTask cc 派发 notesText/traceText/artifactsSummary、alternatives trace）v4.9.1 已修",
+      "rationale": "expr-2026-09-06_16-32-52 v9_4 事故：验证收口步证据全在 trace/notes 尾部（watchdog 重启实证、218/218、understand 报告、外部 AI 仲裁 approved），但审核上下文 clip(trace,4000) 取头——trace 已超长时尾部全丢 → Swarm Refactoring-Architect 三次空意见拒 + Claude 通道两次基于「未见仲裁/未见 approved 记录」旧状态误拒（它引用的上下文停在第三次重提前）。修复 tailClip 后审方才能看到仲裁与完整证据",
+      "evidence": "commit 7578cc5（v4.9.1-fix）；五轮误拒记录：Swarm×3（空 findings）+ cc×2（引用旧状态）；外部 AI 仲裁 expr-2026-09-06_17-50-14 approved（channel=dialog-fallback）",
+      "confidence": "high",
+      "status": "approved",
+      "suggested": "in-protocol",
+      "crossRef": [
+        "L-2026-0907-034",
+        "L-2026-0906-033"
+      ],
+      "recordedAt": "2026-09-07T02:10:00.000Z"
     }
   ]
 }
