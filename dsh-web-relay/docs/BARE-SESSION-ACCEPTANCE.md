@@ -29,3 +29,12 @@
 
 ## 2. 记录回填
 实测结果回填本文件 §3（日期/触发语/A-B-C/差距），或由主 agent 在新会话汇报后在此留档。
+
+## 3. 实测结果（2026-09-06，裸新会话，PASS）
+
+用户开全新对话执行（无装配注入），新会话主 agent 回答（原话摘要）：
+- **A ✅**：会话技能目录列出 4 技能——dsh-web-relay-main-agent（已加载）/ auto-iteration-modeling / agent-tool-troubleshooting / static-plugin-development；并准确复述 registry 15 项粗粒度能力（含触发条件、approve 状态、auto-iteration 与 manual-development 互斥）。
+- **B ✅**：声明「已按 dsh-web-relay 主 agent 纪律完成前置读取」，read_skill 加载 dsh-web-relay-main-agent。
+- **C ✅**：按 cap_4 导引核实可访问 SKILL.md / main-agent-runbook-v0.1.md / capabilities/registry.yaml，并按手册 §2 顺序（读手册→读记录→读 steps.json）、§3 SOP（镜像单测→node --check/test→verify-capabilities→trace→提审→版间门→发布）给出完整执行准备框架；诚实标注当前消息无 handoff 注入故不虚构执行。
+- **差距**：无。冷启动索引正常（4 技能含 3 dsh-web-relay + 内置 static-plugin-development），cap_1/cap_4 验收关闭。
+- 结论：**裸新对话能力持久化闭环验证通过**（external AI 复核：expr-2026-09-06_15-18-19 已指出冷启动为唯一待测项，现已补证）。
