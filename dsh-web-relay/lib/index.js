@@ -531,6 +531,9 @@ export function apply(ctx) {
       ? String(workspacePath).trim()
       : (sandboxPolicy?.workspaceRoot || process.cwd())
 
+  // v4.6.0 (V2): 最近一次续跑扫描结果（bootResumeScan/admin 端点写入，/health-check 暴露——重启续跑可观测）
+  let lastResumeScan = null
+
   // ---------- V3.1: Prompt 自主进化·拒收原因聚类与案例库（轻量版）----------
   // 聚类规则：rejected reason → 类别（缺产物/未达验收/证据不足/路径问题/语法错误/其他）
   const REJECT_CATEGORIES = [
@@ -1716,6 +1719,8 @@ export function apply(ctx) {
     const resumed = results.flatMap((r) => r.resumed)
     const paused = results.flatMap((r) => r.paused)
     const checked = results.reduce((n, r) => n + r.checked, 0)
+    // v4.6.0 (V2): 记录最近扫描结果（供 /health-check 暴露）
+    lastResumeScan = { at: new Date().toISOString(), checked, resumed: resumed.length, paused: paused.length, resumedExprs: resumed.map((x) => x.exprId) }
     if (checked > 0 || resumed.length > 0 || paused.length > 0) {
       console.warn(`[dsh-web-relay] 重启续跑扫描完成：${results.map((r) => `${r.base}(${r.checked})`).join('；')}｜续跑 ${resumed.length}（${resumed.map((x) => x.exprId).join(',')}）｜熔断 ${paused.length}（${paused.join(',')}）｜bootId=${CURRENT_BOOT_ID}`)
     } else {
@@ -1794,6 +1799,8 @@ export function apply(ctx) {
       version: PLUGIN_VERSION,
       // v4.0 Step1: 宿主 bootId（重启检测/续跑扫描标识；watchdog 与面板可读）
       bootId: CURRENT_BOOT_ID,
+      // v4.6.0 (V2): 最近一次续跑扫描结果（重启后 bootResumeScan 写入——可观测续跑发生）
+      resumed: lastResumeScan || null,
       // v3.9 S2: 优雅停机准备状态（watchdog / 面板可读：preparing=true 表示准备中）
       preparing: Boolean(prepareRestartState),
       preparedAt: prepareRestartState ? prepareRestartState.at : null,
@@ -3564,6 +3571,7 @@ export function apply(ctx) {
       const result = (payload && payload.workspacePath)
         ? (await scanBase(baseOf(payload.workspacePath))) || { base: baseOf(payload.workspacePath), checked: 0, resumed: [], paused: [] }
         : await bootResumeScan()
+      lastResumeScan = { at: new Date().toISOString(), checked: result.checked || 0, resumed: (result.resumed || []).length, paused: (result.paused || []).length, resumedExprs: (result.resumed || []).map((x) => x.exprId) } // v4.6.0
       json(res, 200, { ok: true, bootId: CURRENT_BOOT_ID, ...result })
     } catch (err) {
       json(res, 500, { ok: false, error: String(err?.message || err) })
