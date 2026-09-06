@@ -5,6 +5,8 @@ description: dsh-web-relay 主 agent 核心能力与调优规范——handoff/�
 
 # Skill: dsh-web-relay-main-agent
 
+> 导引（cap_4）：未收到装配注入时，复杂任务前先读 `docs/capabilities/registry.yaml` 与 `docs/main-agent-runbook-v0.1.md`（若可访问）。
+
 > 用途：主 agent 收到 dsh-web-relay handoff 时，必须加载本 Skill。
 > 归属：项目工作流 Skill。
 > 完整手册：`D:\DSH\dsh-web-relay\docs\main-agent-runbook-v0.1.md`

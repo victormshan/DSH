@@ -5,6 +5,8 @@ description: 工具/会话能力排障——主 agent 工具缺失、shell 不�
 
 # Skill: agent-tool-troubleshooting
 
+> 导引（cap_4）：未收到装配注入时，复杂任务前先读 `docs/capabilities/registry.yaml` 与 `docs/main-agent-runbook-v0.1.md`（若可访问）。
+
 > 用途：当主 agent 会话出现工具缺失、shell 不可用、命令执行失败时使用。
 > 归属：平台/工具排障知识。
 > 不适用范围：普通业务问题、代码逻辑问题。

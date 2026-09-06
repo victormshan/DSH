@@ -5,6 +5,8 @@ description: 自动版本迭代建模方法论——仅在用户要求自动迭�
 
 # Skill: auto-iteration-modeling
 
+> 导引（cap_4）：未收到装配注入时，复杂任务前先读 `docs/capabilities/registry.yaml` 与 `docs/main-agent-runbook-v0.1.md`（若可访问）。
+
 > 用途：仅在 **自动版本迭代** 场景下使用。
 > 归属：工作模式 / 方法论 Skill。
 > 适用范围：dsh-web-relay 或类似的源码级自动多版本迭代任务。
