@@ -6,6 +6,7 @@
 > POC-④ 大模块实现 ✅（verify-lessons.mjs 校验器 6.7KB+9 单测，Claude 实现主 agent 合入；含 WSL 路径/BOM 跨环境修复）
 > 守护化 ✅（cc-watchdog.sh 常驻轮询 D:\cc-tasks\queue → tasks/；runner 失败检测写 result.json failed → 降级信号）
 > 安全演练 ✅（demo1 矛盾 prompt 被 Claude 拒绝执行——判定疑似注入不写沙盒外文件 → 失败检测+降级链在"安全拒绝"场景同样生效）
+> v4.9 协议化 ✅（v2.0：claude-code 正式进入协议级审核降级链 external→web-gemini→claude-code→dialog→manual；lib/cc-channel.js 客户端 + reviewChannel=claude-code 强制通道；batch 受控并发；全量 218/218）
 
 ## 1. 架构
 
@@ -75,3 +76,16 @@ kind 支持（语义澄清，cc-understand-hybrid 复盘 2026-09-06 修订）：
 ### §5 归档与登记
 - 本协议即 CC-HYBRID §4（Active v1.0）；registry cc-hybrid-claude-code 条目 verification 含本协议关键词。
 - 验证入口：node scripts/verify-capabilities.mjs（cc-hybrid-claude-code 条目含「混合架构特性演进验收协议」content 校验）。
+
+## 6. v4.9 协议化（协议 v2.0，2026-09-07 expr-16-32-52）
+
+混合架构由「主 agent 手动派发」升级为**协议级能力**（外部 AI 排位 C→A→B→D）：
+
+- **lib/cc-channel.js**（Claude Code kind=implement 实现，主 agent 校验合入）：cc-tasks 审核通道客户端——buildReviewTask/parseCcVerdict/pollTaskResult/readReviewOut/ccChannelAvailable/sanitizeTaskId/nodeFsImpl，全部 IO 走可注入 fsImpl（21 单测内存 fake，不碰真实盘）。
+- **审核降级链 v2.0**（lib/index.js reviewOneStep 拆层 obtainReviewVerdict / applyReviewOutcome）：
+  `external(Gemini API) → web-gemini → claude-code（本地，D:\cc-tasks）→ dialog → manual`。
+  `reviewChannel=claude-code` 强制首选 cc；cc 失败自动续降 dialog。cc 降级成功标注 `providerLabel/reviewedBy=claude-code`、轨迹 reviewerLabel「Claude-Code (降级)」。
+- **alternatives 裁决管道**（lib/alternatives-compare.js + POST /steps/alternatives-review）：6 段模板逐方案打分择优 → `step.decision` + notes(action=decision) + 轨迹。
+- **batchStepIds 受控并发**：预检（串行）→ `mapLimit`（默认并发 2，env DSH_RELAY_BATCH_CONCURRENCY）并发取结论（不落盘）→ 串行 apply / 原子打回统一落盘——无 state 文件写盘竞态；callGemini 429/5xx 退避（1.5s/3s×2）。
+- 环境开关：`DSH_CC_REVIEW_ENABLED=0` 关闭 cc 通道；`DSH_CC_REVIEW_TIMEOUT_MS` 轮询上限（默认 150s）；`DSH_CC_TASKS_ROOT` 覆盖目录。
+- 注册表：registry.yaml 新增 protocol-v2-evolution 条目；cc-hybrid-claude-code 条目 verification 增 lib/cc-channel.js。

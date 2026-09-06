@@ -86,15 +86,17 @@ test('v3.0.1 审核降级链：API+web 都失败 → dialog', () => {
   assert.equal(reviewChain(false, false).reviewer, 'dialog')
 })
 
-test('source 源码含 v3.0.1 审核降级链标记（API → web-gemini → dialog）', () => {
+test('source 源码含 v2.0 审核降级链标记（API → web-gemini → claude-code → dialog）', () => {
   const src = fs.readFileSync(new URL('../lib/index.js', import.meta.url), 'utf8')
   assert.ok(src.includes('v3.0.1: 降级链加入 web-gemini'))
-  assert.ok(src.includes('v3.0.1: Gemini API 失败 → web-gemini 网页通道（免配额）'))
-  // 顺序：callGemini 在 webGeminiAsk 之前（API 优先），webGeminiAsk 在 callDialogModel 之前
-  const api = src.indexOf('r = await callGemini(prompt)')
-  const web = src.indexOf('const w = await webGeminiAsk(prompt)')
-  const dia = src.indexOf('r = await callDialogModel(prompt)', web)
-  assert.ok(api > 0 && web > api && dia > web, `顺序异常 api=${api} web=${web} dia=${dia}`)
+  // v4.9/v2.0：链插入 claude-code（本地 CC 通道）；按链段注释断言顺序 ①Gemini → ②web → ③cc → ④dialog
+  const one = src.indexOf('// ① Gemini API')
+  const two = src.indexOf('// ② web-gemini 网页')
+  const three = src.indexOf('// ③ claude-code 本地通道')
+  const four = src.indexOf('// ④ dialog（无工具')
+  assert.ok(one > 0 && two > one && three > two && four > three, `链段顺序异常 one=${one} two=${two} three=${three} four=${four}`)
+  assert.ok(src.includes('const cc = await runCcReviewTask'))
+  assert.ok(src.includes("reviewerLabel: reviewer === 'external' ? '外部 AI' : reviewer === 'cc' ? 'Claude-Code (降级)'"))
 })
 
 test('source 源码含修复标记（inject + 块数组 + currentSelection）', () => {

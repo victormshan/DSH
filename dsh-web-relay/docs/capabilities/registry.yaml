@@ -263,12 +263,12 @@
   version: 1
 
 - id: cc-hybrid-claude-code
-  name: Claude Code 混合架构（WSL 订阅 headless 实现/审方 + 降级）
+  name: Claude Code 混合架构（WSL 订阅 headless 实现/审方 + 降级 + 协议化 v2.0）
   category: platform
   scope: hybrid-execution
   source: docs/CC-HYBRID.md
   skill: null
-  trigger: 混合架构派发实现/审方任务给 Claude Code（D:\cc-tasks 目录契约 + runner/cc-watchdog）、cc 不可用降级回主 agent 单一架构
+  trigger: 混合架构派发实现/审方任务给 Claude Code（D:\cc-tasks 目录契约 + runner/cc-watchdog）、cc 不可用降级回主 agent 单一架构、审核降级链 claude-code 通道排障
   conflicts: []
   verification:
     - file-exists: docs/CC-HYBRID.md
@@ -281,7 +281,37 @@
     - content-contains:
         file: docs/CC-HYBRID.md
         text: "混合架构特性演进验收协议"
+    - content-contains:
+        file: docs/CC-HYBRID.md
+        text: "v4.9 协议化"
     - file-exists: lib/cc-task-schema.mjs
-  lastVerified: 2026-09-06
+    - file-exists: lib/cc-channel.js
+  lastVerified: 2026-09-07
+  status: approved
+  version: 2
+
+- id: protocol-v2-evolution
+  name: 协议 v2.0 演进（claude-code 降级链 + alternatives 裁决 + 并发审核批）
+  category: project
+  scope: protocol-evolution
+  source: lib/index.js
+  skill: null
+  trigger: v4.9+ 协议语义查询/实现（审核降级链 v2.0 顺序、alternatives 裁决端点、batchStepIds 并发语义、429 退避）
+  conflicts: []
+  verification:
+    - file-exists: lib/cc-channel.js
+    - file-exists: lib/alternatives-compare.js
+    - content-contains:
+        file: lib/index.js
+        text: "全角色降级链 v2.0"
+    - content-contains:
+        file: lib/index.js
+        text: "alternatives 裁决管道（v2.0"
+    - content-contains:
+        file: lib/index.js
+        text: "批量并发审核 v2.0"
+    - file-exists: test/cc-channel.test.js
+    - file-exists: test/alternatives-compare.test.js
+  lastVerified: 2026-09-07
   status: approved
   version: 1

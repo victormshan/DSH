@@ -30,6 +30,13 @@ import { isExprInterrupted, resumeAction, resumeHandoff, isScanEligible } from '
 import { extractAutoIterDecl as extractAutoIterDeclLib } from './autoiter-decl.js'
 // v4.4 U1: Lesson Top-K 触发注入（见 lib/lessons-inject.js）
 import { loadLessonsFile, topLessonsForTrigger, renderLessonBlock } from './lessons-inject.js'
+// v4.9/v2.0: claude-code 审核通道客户端（纯 Node ESM，D:\cc-tasks 派发；见 lib/cc-channel.js）
+import {
+  buildReviewTask, parseCcVerdict, pollTaskResult, readReviewOut,
+  ccChannelAvailable, nodeFsImpl, resolveTasksRoot
+} from './cc-channel.js'
+// v4.9/v2.0: alternatives 多方案裁决（6 段模板 + 决策解析；见 lib/alternatives-compare.js）
+import { buildAlternativesReviewPrompt, parseAlternativesDecision } from './alternatives-compare.js'
 
 // v2.4-1: 插件版本（从 package.json 实时读取，避免硬编码漂移——原 statusHandler 曾长期报 1.3.0）
 export const PLUGIN_VERSION = (() => {
@@ -74,6 +81,10 @@ export const WEB_RELAY_PROTOCOL_VERSION_V18 = 'v1.8'
 // v1.9: AutoIteration (multi-version automatic evolution) / full-role fallback chain
 // (external → dialog → pause) covering ask + review.
 export const WEB_RELAY_PROTOCOL_VERSION_V19 = 'v1.9'
+// v2.0 (v4.9 协议演进): 全角色降级链插入本地 claude-code 通道（D:\cc-tasks 派发，
+// external→web-gemini→claude-code→dialog→manual）、alternatives 多方案裁决管道
+// （/steps/alternatives-review + 6 段模板）、batchStepIds 受控并发审核 + 429 退避。
+export const WEB_RELAY_PROTOCOL_VERSION_V20 = 'v2.0'
 export const WEB_RELAY_PROTOCOL = [
   '三方主体（web-relay 语境）：用户 (the human) / 主 agent (the tool-using agent in the main harness session，负责执行与收口) / 外部AI (external web AI — Gemini/DeepSeek 网页版或 free API，负责提供方案与回答)。全程一致使用这三个称谓。',
   '协作规则：任务记录保存在 web-relay/experiments/，三方对话流水（轨迹）保存在 web-relay/traces/。用户在 web-relay 面板发起任务，外部AI 回答，主 agent 按需执行并收口；主 agent 的收口结论通过 POST /dsh-web-relay/trace 追加到对应轨迹，不再写入 side/。',
@@ -95,8 +106,12 @@ export const WEB_RELAY_PROTOCOL = [
   'V1.8.1 澄清（协议级，版本号保持 v1.8）：① reviewSpecified 以 typeof step.review === "boolean" 为准——review:null 或字段缺失一律视为未显式指定（reviewSpecified=false），按 importance 映射；外部 AI 严禁用 review:null 表达显式意图，必须输出 boolean 或直接省略该键。② review:false 仅表示跳过三方/人类审核流（直接置 approved）；主 agent 本地安全护栏（危险命令拦截、越界文件读写策略）为运行时最高级硬约束，优先级高于任何协议参数，不得因 review:false 解除。③ 批量打回仅倒转步骤状态并清空 reviewedBy，不触发代码回滚；重提时针对拒收意见补证据/微调即可；被打回步骤的下游依赖自动闭锁。④ restructure 仅允许修改/删除 pending 与 rejected 步骤，approved 步骤与产物严禁篡改；被删除/替换步骤记录于 changes.removed 并写入 trace 留痕；物理中间产物清理属主 agent 执行纪律。⑤ 重构后的 pending 步骤允许在 depends_on 中引用历史 approved 步骤，门控按新拓扑计算，已有 approved 状态不受影响。⑥ restructure 提交时服务端校验所有 depends_on 引用的合法性，严禁产生指向已删除步骤的悬空依赖（否则返回 400）。⑦ 步骤被打回（含单步打回、自动审核打回、批量连带打回）时清空 reviewedBy（置 null），重新审核通过后再记录审核来源。',
   '自动迭代协议（v1.9，AutoIteration）：用户首次 prompt 可声明 {"iterations": N, "finalAcceptance": "<验收标准>", "autoDecision": true}（缺省 iterations=1 即单轮，向后兼容；N 限 1-10）。每版循环 Vn：外部 AI 评审 V(n-1) 产出与审核反馈 → 输出 Vn 修正 Step List（importance 分工）→ 主 agent 实施（源码层迭代）→ 验证 + commit + tag → 轨迹沉淀。版间门：仅当 Vn 全部 approved 才进入 Vn+1；达到 iterations 上限后收口 done 并唤醒用户最终验收（重启 + 端到端实测）。兜底：任一步骤连续打回 ≥3 次 → 自动暂停（status=paused）并唤醒用户介入，不无限重试。',
   '全角色降级链（v1.9）：所有外部 AI 调用统一降级策略——external(Gemini) → dialog(内部对话模型，无工具) → 失败报错由用户介入（pause）。覆盖 /ask（方案生成/评审/代决策，v1.9 补齐）与 /steps/auto-review（审核，v1.5 起已有）。降级成功时 providerLabel 标注「对话模型（降级）」、record channel 记 dialog-fallback、reviewedBy 记 dialog，审计可溯源。dialog 仅兜底不默认（无工具、质量弱于 Gemini）。',
+  '全角色降级链 v2.0（v4.9 协议演进）：降级链插入本地 claude-code 通道——external(Gemini API) → web-gemini 网页 → claude-code（本地 Claude Code，经 D:\\cc-tasks 派发审核任务，reviewChannel=claude-code 可强制首选）→ dialog(内部对话模型，无工具) → manual(手动)。claude-code 降级成功时 providerLabel 标注「Claude-Code (降级)」、record channel 记 claude-code、reviewedBy 记 claude-code；该通道不可用/超时自动续降 dialog。适用 /steps/auto-review（审核）；/ask 的 gemini-free 通道同样支持（web-gemini 失败后尝试 claude-code 再 dialog）。',
+  'alternatives 裁决管道（v2.0，v4.9 协议演进）：含 alternatives（多候选方案）字段的 Step 可发起比较评审（POST /dsh-web-relay/steps/alternatives-review，body { exprId, stepId }）——外部 AI 逐方案打分（0-10）与优劣对比，依据验收标准择优，返回 { chosen, rationale, scores }；系统把裁决写入 step.decision 与 notes（action=decision）+ 三方轨迹。打包模板升级为 6 段式：任务/Step/候选方案逐项/执行证据/任务记录+三方轨迹/决策输出。',
+  '批量并发审核 v2.0（v4.9 协议演进）：/steps/auto-review 的 batchStepIds 由串行逐审升级为受控并发（默认并发上限 2，env DSH_RELAY_BATCH_CONCURRENCY 可调；不同 Step 独立请求、共享 Key 429 退避），批量内任一 rejected 仍按原子打回（batch 内已 approved 步骤统一退回 rejected）；并发只并行"取审核结论"，落盘/唤醒仍集中串行执行避免竞态。',
   'v1.8：混合模式（importance 驱动执行/审核分工）、review:false 硬开关、restructure 状态隔离、批量原子打回、5 段模板缺省对齐。',
-  'v1.9：自动迭代（AutoIteration 多版本自动演进、版间门、连续打回熔断）、全角色降级链（external → dialog → pause）。'
+  'v1.9：自动迭代（AutoIteration 多版本自动演进、版间门、连续打回熔断）、全角色降级链（external → dialog → pause）。',
+  'v2.0：全角色降级链插入 claude-code 通道（external → web-gemini → claude-code → dialog → manual）、alternatives 裁决管道（6 段模板）、batchStepIds 受控并发审核 + 429 退避。'
 ].join('\n')
 
 // v1.3: external-AI skill, the detailed execution spec referenced by the
@@ -258,7 +273,8 @@ export const WEB_RELAY_EXTERNAL_AI_SKILL = [
   '- v1.6：Step List 并发调度（depends_on / parallel_group），主 agent 依赖门控 + 多步并行，审核逐步独立。',
   '- v1.7：多方案比较（alternatives）、步骤权重（importance）与批量合并审核、planning 双向探讨（5 段式打包模板）。',
   '- v1.8：混合模式（importance 驱动执行/审核分工）、review:false 硬开关、restructure 状态隔离、批量原子打回、5 段模板缺省对齐。',
-  '- v1.9：自动迭代（AutoIteration 多版本自动演进、版间门、连续打回熔断）、全角色降级链（external → dialog → pause）。'
+  '- v1.9：自动迭代（AutoIteration 多版本自动演进、版间门、连续打回熔断）、全角色降级链（external → dialog → pause）。',
+  '- v2.0：全角色降级链插入 claude-code 通道（external → web-gemini → claude-code → dialog → manual）、alternatives 裁决管道（/steps/alternatives-review + 6 段打包模板）、batchStepIds 受控并发审核 + 429 退避。'
 ].join('\n')
 
 // ---------------------------------------------------------------------------
@@ -287,7 +303,11 @@ export const WEB_RELAY_PROTOCOL_EN = [
   'v1.8: hybrid mode (importance-driven execution/review division), review:false hard switch, restructure state isolation, atomic batch rejection, 5-section template default alignment.',
   'AutoIteration protocol (v1.9): the user may declare {"iterations": N, "finalAcceptance": "<acceptance>", "autoDecision": true} in the initial prompt (default iterations=1 = single round, backward compatible; N limited to 1-10). Each round Vn: the External AI reviews V(n-1) output and review feedback, produces the Vn revised Step List (importance division), the Main agent implements (source-level iteration), verifies + commits + tags, and settles the trace. Round gate: Vn+1 starts only when all Vn steps are approved; at the iterations limit the task is finalized (done) and the user is woken for final acceptance (restart + end-to-end verification). Circuit breaker: any step rejected 3 consecutive times → auto-pause (status=paused) and wake the user; never retry indefinitely.',
   'Full-role fallback chain (v1.9): every External AI call follows the same degradation policy — external(Gemini) → dialog (internal dialog model, no tools) → report the error and let the user intervene (pause). Covers /ask (plan/review/decision generation, added in v1.9) and /steps/auto-review (review, existing since v1.5). On degraded success providerLabel is marked "对话模型（降级）", record channel is dialog-fallback, reviewedBy is dialog for auditability. dialog is fallback-only, never the default (no tools, weaker quality than Gemini).',
-  'v1.9: AutoIteration (multi-version automatic evolution, round gates, consecutive-rejection circuit breaker), full-role fallback chain (external → dialog → pause).'
+  'Full-role fallback chain v2.0 (v4.9 protocol evolution): the chain gains a local claude-code hop — external(Gemini API) → web-gemini page → claude-code (local Claude Code, review tasks dispatched through D:\\cc-tasks; reviewChannel=claude-code forces it first) → dialog (internal dialog model, no tools) → manual. On claude-code success providerLabel is marked "Claude-Code (降级)", record channel is claude-code, reviewedBy is claude-code; when the channel is unavailable/times out the chain continues to dialog. Applies to /steps/auto-review; the /ask gemini-free channel also supports it (tries claude-code after web-gemini fails, then dialog).',
+  'Alternatives adjudication pipeline (v2.0, v4.9 protocol evolution): a Step carrying alternatives (candidate plans) may trigger comparison review (POST /dsh-web-relay/steps/alternatives-review, body { exprId, stepId }) — the External AI scores each plan (0-10), compares pros/cons and recommends the best against the acceptance criteria, returning { chosen, rationale, scores }; the system writes the verdict into step.decision and notes (action=decision) plus the three-party trace. The packaging template is upgraded to a 6-section shape: task / step / candidates / execution evidence / record+trace / decision output.',
+  'Batch concurrent review v2.0 (v4.9 protocol evolution): /steps/auto-review batchStepIds upgrades from serial to throttled concurrent review (default concurrency 2, env DSH_RELAY_BATCH_CONCURRENCY; per-step independent requests sharing the key with 429 backoff). Atomic batch rejection semantics are preserved (any rejected → every batch step including just-approved ones returns to rejected); concurrency only parallelizes "obtaining verdicts", state persistence/wake-up stays serial to avoid races.',
+  'v1.9: AutoIteration (multi-version automatic evolution, round gates, consecutive-rejection circuit breaker), full-role fallback chain (external → dialog → pause).',
+  'v2.0: claude-code hop in the full-role fallback chain (external → web-gemini → claude-code → dialog → manual), alternatives adjudication pipeline (6-section template), throttled batch concurrent review with 429 backoff.'
 ].join('\n')
 
 export const WEB_RELAY_EXTERNAL_AI_SKILL_EN = [
@@ -449,7 +469,8 @@ export const WEB_RELAY_EXTERNAL_AI_SKILL_EN = [
   '- v1.6: Step List concurrent scheduling (depends_on / parallel_group); dependency gating + multi-step parallelism; per-step review.',
   '- v1.7: multi-plan comparison (alternatives), step importance (importance) with batch review, planning two-way exploration (5-section packaging).',
   '- v1.8: hybrid mode (importance-driven execution/review division), review:false hard switch, restructure state isolation, atomic batch rejection, 5-section template default alignment.',
-  '- v1.9: AutoIteration (multi-version automatic evolution, round gates, consecutive-rejection circuit breaker), full-role fallback chain (external → dialog → pause).'
+  '- v1.9: AutoIteration (multi-version automatic evolution, round gates, consecutive-rejection circuit breaker), full-role fallback chain (external → dialog → pause).',
+  '- v2.0: claude-code hop in the full-role fallback chain (external → web-gemini → claude-code → dialog → manual), alternatives adjudication pipeline (/steps/alternatives-review + 6-section packaging template), throttled batch concurrent review with 429 backoff.'
 ].join('\n')
 
 // v0.5 record-domain constants: web-relay owns its own directory tree.
@@ -469,6 +490,15 @@ export const BRIDGE_BASE = process.env.DSH_RELAY_BRIDGE || 'http://localhost:889
 // v1.9 claude 通道：默认 Claude 模型（经 harness llm 服务 anthropic provider 调用；
 // 需配置 llm-pi-ai providers.anthropic 路由 + ANTHROPIC_API_KEY 环境变量）。可用 DSH_RELAY_CLAUDE_MODEL 覆盖。
 export const CLAUDE_DEFAULT_MODEL = process.env.DSH_RELAY_CLAUDE_MODEL || 'claude-sonnet-4-5'
+// v4.9/v2.0: claude-code 本地审核通道（混合架构进协议降级链）。
+// 派发目录 D:\cc-tasks（queue/<id>.task.json → cc-watchdog 轮询 → tasks/<id>/ → runner.sh claude headless）。
+// DSH_CC_REVIEW_ENABLED='0' 关闭（审核直接跳过 cc 通道续降 dialog）；DSH_CC_REVIEW_TIMEOUT_MS 覆盖轮询上限。
+const CC_TASKS_ROOT = resolveTasksRoot(process.env)
+const CC_REVIEW_ENABLED = process.env.DSH_CC_REVIEW_ENABLED !== '0'
+const CC_REVIEW_TIMEOUT_MS = Number(process.env.DSH_CC_REVIEW_TIMEOUT_MS || 150000)
+const CC_REVIEW_POLL_MS = Number(process.env.DSH_CC_REVIEW_POLL_MS || 5000)
+// v4.9/v2.0: batchStepIds 受控并发上限（env 可调；默认 2 兼顾吞吐与 429/配额风险）
+const BATCH_REVIEW_CONCURRENCY = Math.max(1, Number(process.env.DSH_RELAY_BATCH_CONCURRENCY || 2))
 // v2.6-2: Webhook 通知（熔断/降级/审核拒绝/版间门事件 → 外部通道，如 Lark/钉钉/飞书）。
 // 可用 DSH_RELAY_WEBHOOK_URL 配置；fire-and-forget 发送，失败静默不影响主流程。
 export const WEBHOOK_URL = process.env.DSH_RELAY_WEBHOOK_URL || ''
@@ -504,18 +534,29 @@ const json = (res, code, payload) => {
 
 async function callGemini(prompt) {
   const url = `${GEMINI_ROOT}/${encodeURIComponent(GEMINI_MODEL)}:generateContent?key=${encodeURIComponent(GEMINI_KEY)}`
-  const resp = await fetch(url, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
-  })
-  const raw = await resp.text().catch(() => '')
-  if (!resp.ok) return { ok: false, error: `Gemini HTTP ${resp.status}: ${raw.slice(0, 500)}` }
-  let data
-  try { data = JSON.parse(raw) } catch { return { ok: false, error: 'Gemini returned non-JSON response' } }
-  const text = (data?.candidates?.[0]?.content?.parts ?? []).map((p) => p.text ?? '').join('')
-  if (!text) return { ok: false, error: 'Gemini returned empty answer' }
-  return { ok: true, text }
+  // v4.9/v2.0: 429/5xx 配额退避——最多额外重试 2 次（1.5s/3s），改善并发批触发 429 后的毛刺
+  const RETRY_STATUS = new Set([429, 500, 502, 503, 504])
+  let lastErr = ''
+  for (let attempt = 0; attempt < 3; attempt++) {
+    if (attempt > 0) await new Promise((r) => setTimeout(r, attempt === 1 ? 1500 : 3000))
+    const resp = await fetch(url, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
+    })
+    const raw = await resp.text().catch(() => '')
+    if (!resp.ok) {
+      lastErr = `Gemini HTTP ${resp.status}: ${raw.slice(0, 500)}`
+      if (RETRY_STATUS.has(resp.status) && attempt < 2) continue
+      return { ok: false, error: lastErr }
+    }
+    let data
+    try { data = JSON.parse(raw) } catch { return { ok: false, error: 'Gemini returned non-JSON response' } }
+    const text = (data?.candidates?.[0]?.content?.parts ?? []).map((p) => p.text ?? '').join('')
+    if (!text) { lastErr = 'Gemini returned empty answer'; continue }
+    return { ok: true, text }
+  }
+  return { ok: false, error: lastErr || 'Gemini 多次尝试仍失败' }
 }
 
 export function apply(ctx) {
@@ -530,6 +571,21 @@ export function apply(ctx) {
     (workspacePath && String(workspacePath).trim())
       ? String(workspacePath).trim()
       : (sandboxPolicy?.workspaceRoot || process.cwd())
+
+  // v4.9/v2.0: 受控并发映射（批量审核用；items 顺序保持，worker 数 = min(limit, length)）
+  async function mapLimit(items, limit, fn) {
+    const out = new Array(items.length)
+    let i = 0
+    const n = Math.max(1, Math.min(Number(limit) || 1, items.length))
+    const workers = Array.from({ length: n }, async () => {
+      while (i < items.length) {
+        const idx = i++
+        try { out[idx] = await fn(items[idx], idx) } catch (err) { out[idx] = null }
+      }
+    })
+    await Promise.all(workers)
+    return out
+  }
 
   // v4.6.0 (V2): 最近一次续跑扫描结果（bootResumeScan/admin 端点写入，/health-check 暴露——重启续跑可观测）
   let lastResumeScan = null
@@ -1113,7 +1169,7 @@ export function apply(ctx) {
   }
 
     // v1.8: 统一并发语义判定——v1.6/v1.7/v1.8 继承 DAG 并发调度；v1.5 线性默认不变。
-    const isConcurrent = (v) => v === 'v1.6' || v === 'v1.7' || v === 'v1.8' || v === 'v1.9'
+    const isConcurrent = (v) => v === 'v1.6' || v === 'v1.7' || v === 'v1.8' || v === 'v1.9' || v === 'v2.0'
 
     // v1.9 AutoIteration：从 prompt/answer 文本解析自动迭代声明
     // {"iterations": 3, "finalAcceptance": "<验收标准>", "autoDecision": true}
@@ -1768,6 +1824,12 @@ export function apply(ctx) {
     text: WEB_RELAY_PROTOCOL,
     skill: { name: 'web_relay_external_ai_protocol', version: WEB_RELAY_PROTOCOL_VERSION_V19, text: WEB_RELAY_EXTERNAL_AI_SKILL }
   }
+  // v2.0 (v4.9 协议演进): 六版本协议 payload（含 claude-code 降级链 / alternatives 裁决 / 并发批）。
+  const protocolV20 = {
+    version: WEB_RELAY_PROTOCOL_VERSION_V20,
+    text: WEB_RELAY_PROTOCOL,
+    skill: { name: 'web_relay_external_ai_protocol', version: WEB_RELAY_PROTOCOL_VERSION_V20, text: WEB_RELAY_EXTERNAL_AI_SKILL }
+  }
 
   // ---------- routes ----------
   const statusHandler = (req, res) => {
@@ -2216,6 +2278,7 @@ export function apply(ctx) {
         protocolV17,
         protocolV18,
         protocolV19,
+        protocolV20,
         en: {
           protocol: { version: WEB_RELAY_PROTOCOL_VERSION, text: WEB_RELAY_PROTOCOL_EN },
           skill: { name: 'web_relay_external_ai_protocol', version: WEB_RELAY_PROTOCOL_VERSION, text: WEB_RELAY_EXTERNAL_AI_SKILL_EN },
@@ -2223,7 +2286,8 @@ export function apply(ctx) {
           protocolV16: { version: WEB_RELAY_PROTOCOL_VERSION_V16, text: WEB_RELAY_PROTOCOL_EN },
           protocolV17: { version: WEB_RELAY_PROTOCOL_VERSION_V17, text: WEB_RELAY_PROTOCOL_EN },
           protocolV18: { version: WEB_RELAY_PROTOCOL_VERSION_V18, text: WEB_RELAY_PROTOCOL_EN },
-          protocolV19: { version: WEB_RELAY_PROTOCOL_VERSION_V19, text: WEB_RELAY_PROTOCOL_EN }
+          protocolV19: { version: WEB_RELAY_PROTOCOL_VERSION_V19, text: WEB_RELAY_PROTOCOL_EN },
+          protocolV20: { version: WEB_RELAY_PROTOCOL_VERSION_V20, text: WEB_RELAY_PROTOCOL_EN }
         },
         records,
         traces
@@ -2832,7 +2896,47 @@ export function apply(ctx) {
     // 共识规则：双 Approve 才通过）。
     // v3.2.2: reviewChannel 开关——'web-gemini' 强制网页审核（过程可见、免配额）；'auto'（默认）API 优先、失败才切网页。
     // 返回 { state, updated, step, reviewedBy, reviewerLabel, result, reason, manual, fallbackReason, traceText }
-    async function reviewOneStep(state, step, base, safePolicy, enableSwarm, reviewChannel) {
+    // v4.9/v2.0: claude-code 审核通道（本地 Claude Code，D:\cc-tasks 派发）。
+    // 提交 review task → cc-watchdog 拾取 → runner.sh headless 执行 → 轮询 result.json → 读 out/review.md → 解析 verdict。
+    async function runCcReviewTask({ exprId, step, recordText, traceText, artifactsSummary, caseBlock }) {
+      try {
+        if (!CC_REVIEW_ENABLED) return { ok: false, error: 'cc 通道禁用（DSH_CC_REVIEW_ENABLED=0）' }
+        if (!(await ccChannelAvailable({ fsImpl: nodeFsImpl, root: CC_TASKS_ROOT }))) {
+          return { ok: false, error: `cc-tasks 目录不可用（${CC_TASKS_ROOT}）` }
+        }
+        const task = buildReviewTask({
+          exprId,
+          stepId: String(step.id),
+          stepTitle: step.title,
+          stepDetail: step.detail || '',
+          acceptance: step.acceptance || '',
+          artifactsSummary: artifactsSummary || '',
+          recordText: recordText || '',
+          traceText: traceText || '',
+          notesText: JSON.stringify(step.notes || []).slice(0, 4000)
+        })
+        const queuePath = path.join(CC_TASKS_ROOT, 'queue', `${task.taskId}.task.json`)
+        await nodeFsImpl.writeFile(queuePath, JSON.stringify(task, null, 2))
+        console.warn(`[dsh-web-relay] claude-code 审核派发: ${task.taskId} (expr=${exprId} step=${step.id})`)
+        const poll = await pollTaskResult({
+          fsImpl: nodeFsImpl, root: CC_TASKS_ROOT, taskId: task.taskId,
+          timeoutMs: CC_REVIEW_TIMEOUT_MS, intervalMs: CC_REVIEW_POLL_MS
+        })
+        if (!poll.ok) return { ok: false, error: `claude-code 审核未完成（${poll.status}${poll.error ? ': ' + poll.error : ''}）` }
+        const md = await readReviewOut({ fsImpl: nodeFsImpl, root: CC_TASKS_ROOT, taskId: task.taskId })
+        if (!md.ok) return { ok: false, error: `claude-code 审核产物缺失（${md.error}）` }
+        const v = parseCcVerdict(md.text)
+        if (v.verdict === 'unknown') return { ok: false, error: 'claude-code 审核回复无法识别' }
+        return { ok: true, verdict: v.verdict, reason: v.reason, taskId: task.taskId }
+      } catch (e) {
+        return { ok: false, error: `claude-code 通道异常（${String((e && e.message) || e).slice(0, 200)}）` }
+      }
+    }
+
+    // v4.9/v2.0: 审核判定拆层①——只走通道拿结论，不落盘不改状态（并发安全，供批量/单步复用）。
+    // 返回 { result, reason, reviewer, reviewerLabel, fallbackReason, manual, traceText, swarm? }
+    //   reviewer: external | cc | dialog | manual
+    async function obtainReviewVerdict(state, step, base, safePolicy, enableSwarm, reviewChannel) {
       const exprId = state.exprId
       const channel = reviewChannel === 'web-gemini' ? 'web-gemini' : 'auto'
       // 审核上下文：任务记录 + 三方轨迹
@@ -2895,44 +2999,48 @@ export function apply(ctx) {
           '\n【Security-Auditor】' + JSON.stringify(sec.review) +
           '\n【Refactoring-Architect】' + JSON.stringify(ref.review)
         return {
-          state, step,
-          manual: false,
-          reviewedBy: 'external',
-          reviewerLabel: 'Swarm（双角色盲审）',
           result: consensus.result,
           reason: swarmReason,
+          reviewer: 'external',
+          reviewerLabel: 'Swarm（双角色盲审）',
           fallbackReason: 'V3.2 Swarm 双角色盲审',
+          manual: false,
           traceText: clip(traceText, 3000),
-          updated: null,
           swarm: { security: sec.review, refactor: ref.review, consensus: consensus.result }
         }
       }
 
-      // ---- v1.9 审核降级链：Gemini API → web-gemini 网页（免配额）→ 对话模型 → 手动 ----
+      // ---- v2.0 审核降级链：Gemini API → web-gemini 网页（免配额）→ claude-code（本地，v4.9）→ 对话模型 → 手动 ----
       // v3.0.1: 降级链加入 web-gemini（原链 external → dialog，网页通道不参与审核；
       // 现 API 失败时经 web-gemini 网页审核，免配额且审核过程在 Gemini 页面可见）。
       // v3.2.2: reviewChannel='web-gemini' 时跳过 API 直接走网页（审核过程强制可见）。
-      let reviewer = 'external'   // external | dialog | manual
+      // v4.9/v2.0: reviewChannel='claude-code' 时跳过 API/网页直接走本地 claude-code（混合架构强制通道）。
+      let reviewer = 'external'   // external | cc | dialog | manual
       let fallbackReason = ''
       let r = { ok: false }
       let prompt = ''
+      let ccVerdict = null        // claude-code 成功 { result, reason }
+      const wantCc = reviewChannel === 'claude-code'
 
-      if (channel === 'auto' && GEMINI_KEY) {
+      // ① Gemini API（auto 且配置 key 且非强制 cc）
+      if (!wantCc && channel === 'auto' && GEMINI_KEY) {
         prompt = buildReviewPrompt(exprId, step, recordText, traceText, '外部 AI（Gemini）', artifactsSummary, caseBlock)
         r = await callGemini(prompt)
         if (r.ok) reviewer = 'external'
         else fallbackReason = r.error
       } else {
-        fallbackReason = channel === 'web-gemini' ? 'web-gemini 强制通道（reviewChannel=web-gemini）' : 'GEMINI_API_KEY 未配置'
+        fallbackReason = wantCc
+          ? 'claude-code 强制通道（reviewChannel=claude-code）'
+          : (channel === 'web-gemini' ? 'web-gemini 强制通道（reviewChannel=web-gemini）' : 'GEMINI_API_KEY 未配置')
         // v3.2.3 修复：web-gemini 模式同样构建 prompt（此前只在 auto 分支赋值，
         // 导致 webGeminiAsk 收到空 prompt → bridge 400 missing prompt → 误降级 dialog）
-        if (channel === 'web-gemini') {
+        if (channel === 'web-gemini' && !wantCc) {
           prompt = buildReviewPrompt(exprId, step, recordText, traceText, '外部 AI（Gemini）', artifactsSummary, caseBlock)
         }
       }
 
-      if (!r.ok) {
-        // v3.0.1: Gemini API 失败 → web-gemini 网页通道（免配额）
+      // ② web-gemini 网页（非强制 cc）
+      if (!r.ok && !wantCc) {
         const w = await webGeminiAsk(prompt)
         if (w.ok) {
           r = w
@@ -2940,16 +3048,38 @@ export function apply(ctx) {
           fallbackReason = fallbackReason ? fallbackReason + ' → web-gemini 网页通道' : 'web-gemini 网页通道'
         } else {
           fallbackReason = (fallbackReason ? fallbackReason + '；' : '') + `web-gemini（${w.error}）`
-          prompt = buildReviewPrompt(exprId, step, recordText, traceText, '对话模型（无工具）', artifactsSummary, caseBlock)
-          r = await callDialogModel(prompt)
-          if (r.ok) reviewer = 'dialog'
-          else fallbackReason = fallbackReason + '；对话模型亦失败'
         }
       }
 
+      // ③ claude-code 本地通道（v4.9/v2.0：强制 cc 或前两链失败后尝试）
+      if (!r.ok && CC_REVIEW_ENABLED && !ccVerdict) {
+        const cc = await runCcReviewTask({ exprId, step, recordText, traceText, artifactsSummary, caseBlock })
+        if (cc.ok) {
+          ccVerdict = { result: cc.verdict, reason: cc.reason }
+          reviewer = 'cc'
+          fallbackReason = fallbackReason ? fallbackReason + ' → claude-code 通道' : 'claude-code 通道'
+        } else {
+          fallbackReason = (fallbackReason ? fallbackReason + '；' : '') + `claude-code（${cc.error}）`
+        }
+      }
+
+      // ④ dialog（无工具；cc 也失败或禁用时）
+      if (!r.ok && !ccVerdict) {
+        if (!prompt) {
+          prompt = buildReviewPrompt(exprId, step, recordText, traceText, '对话模型（无工具）', artifactsSummary, caseBlock)
+        }
+        const d = await callDialogModel(prompt)
+        if (d.ok) { r = d; reviewer = 'dialog' }
+        else fallbackReason = fallbackReason + '；对话模型亦失败'
+      }
+
+      // ⑤ 合成 verdict
       let result = ''
       let reason = ''
-      if (r.ok) {
+      if (ccVerdict) {
+        result = ccVerdict.result
+        reason = ccVerdict.reason
+      } else if (r.ok) {
         const parsed = parseReview(r.text)
         result = parsed.result
         reason = parsed.reason
@@ -2959,23 +3089,27 @@ export function apply(ctx) {
         }
       }
 
-      if (!r.ok) {
+      if (!r.ok && !ccVerdict) {
         // 降级到手动：前端展开审核框
         return {
-          state, step,
-          manual: true,
-          fallbackReason,
-          reviewedBy: 'manual',
-          reviewerLabel: '用户',
-          result: '',
-          reason: '',
-          traceText: clip(traceText, 3000),
-          updated: null
+          result: '', reason: '', reviewer: 'manual', reviewerLabel: '用户',
+          manual: true, fallbackReason, traceText: clip(traceText, 3000)
         }
       }
+      return {
+        result, reason, reviewer,
+        reviewerLabel: reviewer === 'external' ? '外部 AI' : reviewer === 'cc' ? 'Claude-Code (降级)' : reviewer === 'dialog' ? '对话模型（无工具）' : '用户',
+        manual: false, fallbackReason, traceText: clip(traceText, 3000)
+      }
+    }
 
-      const reviewerLabel = reviewer === 'external' ? '外部 AI' : reviewer === 'dialog' ? '对话模型（无工具）' : '用户'
+    // v4.9/v2.0: 审核判定拆层②——应用 verdict 落盘（状态/notes/轨迹/webhook）。
+    // 仅主执行流调用（单步顺序；批量先并发 obtain 再串行 apply），避免并发写盘竞态。
+    async function applyReviewOutcome(state, step, v, base, safePolicy) {
+      const exprId = state.exprId
+      const { result, reason, reviewer, reviewerLabel, fallbackReason } = v
       const role = reviewer === 'manual' ? 'user' : 'external'
+      const reviewerBy = reviewer === 'cc' ? 'claude-code' : reviewer   // v4.9: cc 审计记 claude-code
       let traceTextEntry = ''
       if (result === 'approved') {
         step.status = 'approved'
@@ -2984,12 +3118,12 @@ export function apply(ctx) {
         step.status = 'rejected'
         traceTextEntry = `${reviewerLabel} 自动打回 Step ${step.id}：${step.title}\n${reason}`
       }
-      // v2.6-2: 降级事件（dialog）与审核拒绝事件 Webhook 通知
-      if (reviewer === 'dialog') notifyWebhook('degradation', { exprId, stepId: step.id, reviewer, reason: fallbackReason || 'Gemini 不可用降级 dialog', taskStatus: state.status })
+      // v2.6-2: 降级事件（dialog/cc）与审核拒绝事件 Webhook 通知
+      if (reviewer === 'dialog' || reviewer === 'cc') notifyWebhook('degradation', { exprId, stepId: step.id, reviewer: reviewerBy, reason: fallbackReason || '外部通道不可用降级', taskStatus: state.status })
       if (result === 'rejected') notifyWebhook('review_rejected', { exprId, stepId: step.id, reviewer, reason })
 
       // v1.5 审核来源；v1.8.1：打回（rejected）时清空 reviewedBy，不留残留审核信息
-      step.reviewedBy = result === 'approved' ? reviewer : null
+      step.reviewedBy = result === 'approved' ? reviewerBy : null
       // v1.0.1: 审核（通过/打回）后从 activeSteps 移除该步（v1.6 并行集合同步）
       state.activeSteps = (state.activeSteps || []).filter((x) => String(x) !== String(step.id))
       // v1.9 AutoIteration：连续打回熔断——rejectStreak 递增（approve 清零），≥3 次自动暂停并唤醒用户
@@ -3006,11 +3140,31 @@ export function apply(ctx) {
       if (state.steps.every((s) => s.status === 'approved')) state.status = 'done'
 
       step.notes = step.notes || []
-      step.notes.push({ role, at: new Date().toISOString(), action: result, text: reason, reviewedBy: reviewer })
+      step.notes.push({ role, at: new Date().toISOString(), action: result, text: reason, reviewedBy: reviewerBy })
       const updated = await writeStepState(base, exprId, state, safePolicy)
       await appendTrace({ base, safePolicy, exprId, entries: [traceEntry(role, traceTextEntry)] }).catch(() => {})
+      return { state, step, updated, result, reason, reviewer: result === 'approved' ? reviewerBy : null, reviewerLabel, fallbackReason, traceText: v.traceText }
+    }
 
-      return { state, step, updated, reviewedBy: reviewer, reviewerLabel, result, reason, manual: false, fallbackReason, traceText: clip(traceText, 3000) }
+    // 审核入口（单步/批量共用）：obtain（通道判定）→ apply（落盘）。
+    // v4.9/v2.0 拆层后行为与原 reviewOneStep 一致（含 swarm / manual 返回兼容）。
+    async function reviewOneStep(state, step, base, safePolicy, enableSwarm, reviewChannel) {
+      const v = await obtainReviewVerdict(state, step, base, safePolicy, enableSwarm, reviewChannel)
+      if (v.manual) {
+        return {
+          state, step,
+          manual: true,
+          fallbackReason: v.fallbackReason,
+          reviewedBy: 'manual',
+          reviewerLabel: '用户',
+          result: '',
+          reason: '',
+          traceText: v.traceText,
+          updated: null
+        }
+      }
+      const applied = await applyReviewOutcome(state, step, v, base, safePolicy)
+      return { state, step, manual: false, reviewedBy: applied.reviewer, ...applied }
     }
 
     // approved 后唤醒主 agent：v1.6 并发就绪清单 / 等待清单 / v1.5 线性下一步 / done 收口。
@@ -3183,12 +3337,15 @@ export function apply(ctx) {
         if (!state.steps || state.steps.length === 0) return json(res, 400, { ok: false, error: 'no steps found' })
         if (state.status === 'stopped') return json(res, 400, { ok: false, error: '任务已停止，不能自动审核' })
 
-        // ---- v1.7 (P2) 批量审核：前端一次传多个 stepId，逐个独立审核 ----
+        // ---- v1.7 (P2) 批量审核：前端一次传多个 stepId ----
         // v1.8 微调2：批量审核原子打回——任一 rejected → batch 内所有步骤（含刚 approved 的）统一退回 rejected。
+        // v4.9/v2.0（并发批）：预检（串行）→ 受控并发 obtainReviewVerdict（不落盘不改状态，天然无写盘竞态）
+        //   → 串行 applyReviewOutcome / 原子打回统一落盘；429 退避在 callGemini 内部处理。
         if (batchStepIds.length > 0) {
           const batchResults = []
-          const reviewed = []   // 实际完成自动审核的 { step, out }（降级手动的步骤不参与原子打回）
-          let anyRejected = false
+          const reviewed = []   // 实际完成自动审核的 { step, verdict }（降级手动的步骤不参与原子打回）
+          // ① 预检（串行、无 IO）：not_found / 非 review / 锁冲突直接记录，其余进入并发池
+          const eligible = []
           for (const sid of batchStepIds) {
             const s = state.steps.find((x) => String(x.id) === String(sid))
             if (!s) {
@@ -3204,19 +3361,22 @@ export function apply(ctx) {
               batchResults.push({ stepId: sid, status: s.status, skipped: true, error: '该步骤正在审核中，请勿重复触发' })
               continue
             }
-            const out = await reviewOneStep(state, s, base, safePolicy, swarmEnablePolicy({ importance: s.importance, enableSwarm: payload.enableSwarm }).enabled, payload.reviewChannel)
-            batchResults.push({
-              stepId: sid,
-              status: s.status,
-              reviewedBy: out.reviewedBy,
-              manual: out.manual === true,
-              reason: out.reason || null,
-              fallbackReason: out.fallbackReason || null
-            })
-            if (out.manual === true) continue   // 降级到手动：未实际审核，不参与原子打回
-            reviewed.push({ step: s, out })
-            if (out.result === 'rejected') anyRejected = true
+            eligible.push({ sid, s })
           }
+          // ② 受控并发取结论（v4.9/v2.0）：只并行走通道，落盘仍串行 → 无 state 文件竞态
+          const verdicts = await mapLimit(eligible, BATCH_REVIEW_CONCURRENCY, async ({ sid, s }) => {
+            const v = await obtainReviewVerdict(state, s, base, safePolicy, swarmEnablePolicy({ importance: s.importance, enableSwarm: payload.enableSwarm }).enabled, payload.reviewChannel)
+            return { sid, s, v }
+          })
+          for (const item of verdicts) {
+            const { sid, s, v } = item
+            if (v.manual === true) {
+              batchResults.push({ stepId: sid, status: s.status, reviewedBy: null, manual: true, reason: null, fallbackReason: v.fallbackReason || null })
+              continue   // 降级到手动：未实际审核，不参与原子打回
+            }
+            reviewed.push({ step: s, verdict: v })
+          }
+          const anyRejected = reviewed.some((x) => x.verdict.result === 'rejected')
 
           // v1.8 微调2：原子打回——任一 rejected → 整批统一退回 rejected 待补证据
           if (anyRejected) {
@@ -3247,12 +3407,21 @@ export function apply(ctx) {
             })
           }
 
-          // 无被拒项：保持逐步唤醒（approved → 并发/等待/线性/收口；rejected → 修改重提）
+          // 无被拒项：串行应用落盘 + 逐步唤醒（approved → 并发/等待/线性/收口；rejected → 修改重提）
           for (const item of reviewed) {
-            if (item.out.result === 'approved') {
-              await wakeAfterApproved(item.out.updated, item.step, item.out.reviewerLabel, sessionId, base, safePolicy)
-            } else if (item.out.result === 'rejected') {
-              await wakeAfterRejected(exprId, item.step, item.out.reason, sessionId, base, safePolicy)
+            const applied = await applyReviewOutcome(state, item.step, item.verdict, base, safePolicy)
+            batchResults.push({
+              stepId: String(item.step.id),
+              status: item.step.status,
+              reviewedBy: item.step.reviewedBy,
+              manual: false,
+              reason: applied.reason || null,
+              fallbackReason: applied.fallbackReason || null
+            })
+            if (item.verdict.result === 'approved') {
+              await wakeAfterApproved(applied.updated, item.step, applied.reviewerLabel, sessionId, base, safePolicy)
+            } else if (item.verdict.result === 'rejected') {
+              await wakeAfterRejected(exprId, item.step, applied.reason, sessionId, base, safePolicy)
             }
           }
           const updated = await writeStepState(base, exprId, state, safePolicy).catch(() => state)
@@ -3316,6 +3485,91 @@ export function apply(ctx) {
           wake,
           handoffText
         })
+      } catch (err) {
+        json(res, 500, { ok: false, error: String(err?.message || err) })
+      }
+    }
+
+    // POST /dsh-web-relay/steps/alternatives-review — v4.9/v2.0 多方案比较裁决
+    // body { workspacePath?, exprId, stepId, sessionId? } → Step 需含非空 alternatives。
+    // 外部 AI 逐方案打分（0-10）+ 优劣对比 → 依据验收标准择优 → 裁决写入 step.decision + notes(action=decision) + 三方轨迹。
+    const alternativesReviewHandler = async (req, res) => {
+      try {
+        if (req.method === 'OPTIONS') return res.writeHead(204, CORS).end()
+        const payload = JSON.parse((await readBody(req)) || '{}')
+        const exprId = typeof payload.exprId === 'string' ? payload.exprId.trim() : ''
+        const stepId = payload.stepId != null ? String(payload.stepId) : ''
+        const sessionId = typeof payload.sessionId === 'string' ? payload.sessionId.trim() : ''
+        if (!TRACE_ID_RE.test(exprId)) return json(res, 400, { ok: false, error: 'invalid exprId' })
+        if (!stepId) return json(res, 400, { ok: false, error: 'missing stepId' })
+
+        const base = baseOf(payload.workspacePath)
+        const safePolicy = safePolicyFor(base)
+        const state = await readStepState(base, exprId)
+        const step = (state.steps || []).find((s) => String(s.id) === String(stepId))
+        if (!step) return json(res, 404, { ok: false, error: 'step not found' })
+        const alts = Array.isArray(step.alternatives) ? step.alternatives : []
+        if (alts.length === 0) return json(res, 400, { ok: false, error: 'Step 无 alternatives（多候选方案），无法裁决' })
+
+        // 审核上下文：任务记录 + 三方轨迹 + 产物摘要
+        const recordPath = `${EXPERIMENTS_DIR}/dsh-web-relay-${exprId.slice(5)}.md`
+        const recordTarget = await fs.resolve(recordPath, { cwd: base })
+        const recordText = await fs.readText(recordTarget).catch(() => '')
+        const trace = await loadTrace(base, exprId)
+        const traceText = (trace.entries || [])
+          .map((e) => `[${ROLE_LABEL[e.role] || e.role}] ${e.text}`)
+          .join('\n')
+        const artifactsSummary = await buildArtifactsSummary(base, safePolicy, step.artifacts)
+        const prompt = buildAlternativesReviewPrompt({ exprId, step, recordText, traceText, artifactsSummary })
+
+        // 通道：Gemini API → web-gemini → dialog（裁决为开放文本择优，不走 claude-code 审核通道）
+        let providerLabel = '外部 AI（Gemini）'
+        let degraded = false
+        let fallbackReason = null
+        let rr = { ok: false }
+        if (GEMINI_KEY) {
+          rr = await callGemini(prompt)
+          if (!rr.ok) {
+            fallbackReason = `Gemini API 调用失败（${rr.error}）`
+            const w = await webGeminiAsk(prompt)
+            if (w.ok) { rr = w; degraded = true; providerLabel = 'Gemini 网页版（web-gemini 降级）' }
+            else {
+              fallbackReason = `${fallbackReason}；web-gemini（${w.error}）`
+              const d = await callDialogModel(prompt)
+              if (d.ok) { rr = d; degraded = true; providerLabel = '对话模型（降级）' }
+              else fallbackReason = `${fallbackReason}；对话模型亦失败`
+            }
+          }
+        } else {
+          fallbackReason = 'GEMINI_API_KEY 未配置'
+          const w = await webGeminiAsk(prompt)
+          if (w.ok) { rr = w; degraded = true; providerLabel = 'Gemini 网页版（web-gemini 降级）' }
+          else {
+            fallbackReason = `${fallbackReason}；web-gemini（${w.error}）`
+            const d = await callDialogModel(prompt)
+            if (d.ok) { rr = d; degraded = true; providerLabel = '对话模型（降级）' }
+            else fallbackReason = `${fallbackReason}；对话模型亦失败`
+          }
+        }
+        if (!rr.ok) return json(res, 502, { ok: false, error: fallbackReason || '所有裁决通道不可用' })
+
+        const parsed = parseAlternativesDecision(rr.text, alts)
+        if (!parsed.ok) return json(res, 422, { ok: false, error: `裁决回复无法定位 chosen：${parsed.error}` })
+
+        // 写 step.decision + notes(action=decision) + 轨迹 + 落盘
+        step.decision = parsed.decision
+        step.notes = step.notes || []
+        step.notes.push({
+          role: 'external', at: new Date().toISOString(), action: 'decision',
+          text: `alternatives 裁决（${providerLabel}）：推荐 ${parsed.decision.chosenName != null ? parsed.decision.chosenName : parsed.decision.chosen} —— ${parsed.decision.rationale || '(无理由)'}`,
+          reviewedBy: degraded ? 'dialog' : 'external'
+        })
+        const updated = await writeStepState(base, exprId, state, safePolicy)
+        await appendTrace({
+          base, safePolicy, exprId,
+          entries: [traceEntry('external', `alternatives 裁决 Step ${step.id}（${providerLabel}${degraded ? '，降级' : ''}）：chosen=${JSON.stringify(parsed.decision.chosen)} rationale=${parsed.decision.rationale || ''}`)]
+        }).catch(() => {})
+        json(res, 200, { ok: true, decision: parsed.decision, degraded, fallbackReason, providerLabel, stepState: updated, step: updated.steps.find((s) => String(s.id) === String(stepId)) })
       } catch (err) {
         json(res, 500, { ok: false, error: String(err?.message || err) })
       }
@@ -3598,6 +3852,7 @@ export function apply(ctx) {
       protocolV17,
       protocolV18,
       protocolV19,
+      protocolV20,
       en: {
         protocol: { version: WEB_RELAY_PROTOCOL_VERSION, text: WEB_RELAY_PROTOCOL_EN },
         skill: { name: 'web_relay_external_ai_protocol', version: WEB_RELAY_PROTOCOL_VERSION, text: WEB_RELAY_EXTERNAL_AI_SKILL_EN },
@@ -3605,7 +3860,8 @@ export function apply(ctx) {
         protocolV16: { version: WEB_RELAY_PROTOCOL_VERSION_V16, text: WEB_RELAY_PROTOCOL_EN },
         protocolV17: { version: WEB_RELAY_PROTOCOL_VERSION_V17, text: WEB_RELAY_PROTOCOL_EN },
         protocolV18: { version: WEB_RELAY_PROTOCOL_VERSION_V18, text: WEB_RELAY_PROTOCOL_EN },
-        protocolV19: { version: WEB_RELAY_PROTOCOL_VERSION_V19, text: WEB_RELAY_PROTOCOL_EN }
+        protocolV19: { version: WEB_RELAY_PROTOCOL_VERSION_V19, text: WEB_RELAY_PROTOCOL_EN },
+        protocolV20: { version: WEB_RELAY_PROTOCOL_VERSION_V20, text: WEB_RELAY_PROTOCOL_EN }
       }
     })
   }
@@ -3619,6 +3875,7 @@ export function apply(ctx) {
     ctx.effect(() => webServer.register({ kind: 'exact', path: '/dsh-web-relay/steps', handler: stepsHandler }), 'dsh-web-relay/steps')
     ctx.effect(() => webServer.register({ kind: 'exact', path: '/dsh-web-relay/steps/update', handler: stepUpdateHandler }), 'dsh-web-relay/steps/update')
     ctx.effect(() => webServer.register({ kind: 'exact', path: '/dsh-web-relay/steps/auto-review', handler: autoReviewHandler }), 'dsh-web-relay/steps/auto-review')
+    ctx.effect(() => webServer.register({ kind: 'exact', path: '/dsh-web-relay/steps/alternatives-review', handler: alternativesReviewHandler }), 'dsh-web-relay/steps/alternatives-review')
   ctx.effect(() => webServer.register({ kind: 'exact', path: '/dsh-web-relay/trace', handler: traceHandler }), 'dsh-web-relay/trace')
   ctx.effect(() => webServer.register({ kind: 'exact', path: '/dsh-web-relay/replay', handler: replayHandler }), 'dsh-web-relay/replay')
   ctx.effect(() => webServer.register({ kind: 'exact', path: '/dsh-web-relay/shadow', handler: shadowHandler }), 'dsh-web-relay/shadow')

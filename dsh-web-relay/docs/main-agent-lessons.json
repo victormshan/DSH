@@ -2,7 +2,7 @@
   "meta": {
     "schemaVersion": "0.1",
     "title": "dsh-web-relay 主 agent 语境能力 lesson 库（机器可读）",
-    "updatedAt": "2026-09-06T02:00:00.000Z",
+    "updatedAt": "2026-09-07T00:40:00.000Z",
     "carrierOf": "docs/main-agent-lesson-schema-v0.1.md",
     "statusConvention": "proposed（主 agent 产出）→ approved / in-runbook（用户或外部 AI 确认，记 confirmedBy/confirmedAt）；in-runbook=要点已并入 main-agent-runbook 正文；superseded=内容已并入他条（扩展值，机器消费时应跳过）",
     "confirmedAt": "2026-09-04T13:14:35.897Z",
@@ -559,6 +559,24 @@
         "L-2026-0905-032"
       ],
       "recordedAt": "2026-09-06T02:00:00.000Z"
+    },
+    {
+      "id": "L-2026-0907-034",
+      "title": "批量并发审核必须先拆层：并发只 obtain 结论（不落盘不改状态），再串行 apply/原子打回统一落盘——共享 state 文件并发 writeStepState 会乱序覆盖丢结果",
+      "category": "engineering-action",
+      "layer": "L2",
+      "trigger": "重构 /steps/auto-review 的 batchStepIds 为并发、或任何对同一 steps.json 状态的并发审核/写入场景（v9_3 并发批）时",
+      "decision": "审核判定拆两层：obtainReviewVerdict（只走通道拿 verdict，零写盘零改状态，可安全并发）→ applyReviewOutcome（状态/notes/轨迹/webhook/落盘，串行）。批量 = 预检（串行，not_found/非 review/锁冲突直接记）→ mapLimit 受控并发 obtain（默认并发 2，env DSH_RELAY_BATCH_CONCURRENCY）→ 判定 anyRejected → 原子打回统一一次 writeStepState 或逐项串行 apply。严禁直接并发调 reviewOneStep（内部 writeStepState 同文件异步写 → 后写覆盖先写丢步审核结果）",
+      "rationale": "v4.9/v2.0 实施：初版方案并发调 reviewOneStep 发现竞态——reviewOneStep 每步落盘同一 state 文件，JS 单线程 await 交错下两协程快照互相覆盖；拆层后并发只省审核请求时间（主耗时），落盘串行毫秒级，无竞态且原子打回语义保持（任一 rejected → 全批 rejected 含刚 approved）",
+      "evidence": "lib/index.js reviewOneStep 拆层 commit（v4.9.0）；全量 218/218 含 cc-channel 21 + alternatives 9；dialog-fallback 源码标记测试同步 v2.0 链断言（旧串『v3.0.1: Gemini API 失败 → web-gemini 网页通道（免配额）』已随链注释移除）",
+      "confidence": "high",
+      "status": "approved",
+      "suggested": "in-protocol",
+      "crossRef": [
+        "L-2026-0905-031",
+        "L-2026-0906-033"
+      ],
+      "recordedAt": "2026-09-07T00:40:00.000Z"
     }
   ]
 }

@@ -5,7 +5,7 @@
 > **权威来源**：本目录（`victormshan/DSH` 仓库内的 `dsh-web-relay/`）是唯一维护的源码位置。
 > 修改、提交、发版都在此进行；`deploy.ps1` 负责部署到 dsh profile 的安装目录。
 
-- **当前版本**：见 [`package.json`](./package.json) 的 `version` 字段（本行不手写版本号，避免漂移——改进方案 P1-3 单一数据源；当前协议 v1.9：AutoIteration 自动迭代多版本演进 + 全角色降级链 external→dialog→pause；v1.8 混合模式 + v1.8.1 澄清全部保留）
+- **当前版本**：见 [`package.json`](./package.json) 的 `version` 字段（本行不手写版本号，避免漂移——改进方案 P1-3 单一数据源；当前协议 v2.0：全角色降级链 external→web-gemini→claude-code→dialog→manual + alternatives 裁决管道 + batchStepIds 受控并发；v1.9 AutoIteration、v1.8 混合模式 + v1.8.1 澄清全部保留）
 - **说明文档**：[docs/dsh-web-relay-说明书.md](docs/dsh-web-relay-说明书.md)
 - **版本快照**：[releases/v1.2.0/](releases/v1.2.0/)（全量文件快照，不依赖增量 Edit）｜[releases/v1.1.0/](releases/v1.1.0/)（上一里程碑）｜[v1.0.0/](releases/v1.0.0/)｜[v0.9.0/](releases/v0.9.0/)｜[v0.8.0/](releases/v0.8.0/)｜[v0.7.0/](releases/v0.7.0/)（版本快照为历史里程碑，不随当前版本滚动）
 - **部署**：运行 `deploy.ps1`（含版本断言检查）或手动复制 `lib/`、`package.json`、`cordis.patch.yml` 到 `C:\Users\Administrator\.dsh\profiles\web\node_modules\dsh-web-relay\`
@@ -96,6 +96,7 @@ git tag v0.7.0
 
 | 版本 | 协议 | 内容 |
 |---|---|---|
+| 4.9.0 | v2.0 | 协议演进四方向落地（expr-2026-09-06_16-32-52，外部 AI 排位 C→A→B→D）：① 全角色降级链插入本地 claude-code 通道（external→web-gemini→claude-code→dialog→manual；lib/cc-channel.js 客户端，Claude Code kind=implement 实现主 agent 校验合入，reviewChannel=claude-code 强制通道，降级标注 reviewedBy=claude-code）；② alternatives 裁决管道（lib/alternatives-compare.js 6 段模板 + POST /steps/alternatives-review → step.decision + notes）；③ batchStepIds 受控并发审核（预检串行 → mapLimit 并发取结论 → 串行 apply/原子打回统一落盘，无写盘竞态；callGemini 429/5xx 退避）；④ reviewOneStep 拆层（obtainReviewVerdict/applyReviewOutcome）+ 协议 v2.0 常量/文本/选择器；全量 218/218（+30：cc-channel 21 + alternatives 9） |
 | 4.8.0 | v1.9 | 能力持久化 4 条建议落地（expr-2026-09-06_15-10-42，外部 AI 排位 P1-P4）：cap_1 3 个 SKILL.md 补 YAML frontmatter → **harness 可用 skill 列表热读识别 3 技能**（裸新对话可 skill 加载能力）；cap_2 装配路径 env 化（REPO_ROOT = DSH_RELAY_REPO \|\| import.meta.url 上溯）；cap_3 export-capability-pack.mjs（skills 同步 ~/.dsh/skills + tar 打包 docs/skills/scripts → dist 能力包）；cap_4 SKILL 导引（未装配裸对话先读 registry/runbook）；全量 188/188 |
 | 4.7.0 | v1.9 | 续跑机制完善（外部 AI 排位 C→B，expr-2026-09-06_12-17-11）：isTest 逻辑归档（isTest+done 的 expr 续跑扫描跳过，scanBase 过滤 + 读写白名单）；多会话并发批量计划 planResumes（不同 sessionId 独立 queue 不冲突不丢，纯函数）；resume-scan.test +2（isScanEligible/planResumes）；全量 169/169 |
 | 4.6.0 | v1.9 | /health-check 暴露续跑统计 resumed{at,checked,resumed,paused,resumedExprs}（bootResumeScan 与 /admin/resume-scan 写入 lastResumeScan）——重启续跑可观测；迭代 2 版（v4.5.0→v4.6.0）后重启续跑演示 version=4.6.0 |

@@ -42,7 +42,7 @@ test('v3.2.6: claude 循环拦截 error/aborted chunk 并 break（不再拼接�
   assert.ok(claudeLoop, 'claude 循环应拦截 error/aborted chunk 并 break')
 })
 
-test('v4.8.0: 版本号已升至 4.8.0', () => {
+test('版本号跟踪 package.json（v4.9.0 更新——协议 v2.0 演进发布）', () => {
   const pkg = JSON.parse(readFileSync(join(__dirname, '..', 'package.json'), 'utf8'))
-  assert.equal(pkg.version, '4.8.0')
+  assert.equal(pkg.version, '4.9.0')
 })
