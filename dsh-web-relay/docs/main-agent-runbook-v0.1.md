@@ -47,6 +47,10 @@
    - 熔断 paused、finalAcceptance（重启实测）→ 报告用户等实测；
    - 面板操作点（一键收口/手动审核）→ 提示用户在面板做。
 6. **通道与降级**：gemini-free 失败会降级 web-gemini→dialog；记录 frontmatter 的 requestProvider/providerLabel/fallbackReason 是审计真相，先读它再解释"为什么走网页/降级"。
+7. **重启/续跑/回合闭环纪律（v4.9.2，lesson 036/037）**：
+   - 杀宿主（kill-host/restart-sync）**只能后台 job**（同步执行必被 harness 中断——工具调用与 3080 有连接）；kill 后**不 wait job 句柄**（跨回合失效+UI 悬挂），改同消息**同步 probe**（Start-Sleep 65 + /status）查 uptime/bootId 确认自愈。
+   - 无介入续跑：expr 落盘 `sessionId = $env:DSH_SESSION_ID`（harness 环境变量）→ 宿主重启后 bootResumeScan 自动注入「宿主自愈重启·自动续跑」唤醒消息（零用户输入，实证 2 次）；心跳（15min 周期）兜底无重启场景的待办提醒；宿主与任务状态永不死（watchdog 自愈 + 双保险），盘上状态随时可续。
+   - 回合自检：输出最终文字前自问「还有未竟工作吗」——有就同一回合继续工具调用，禁止「接下来做 X」预告式结尾；结束回合仅完成汇报或需用户决策。
 
 ## 3. 执行 SOP
 

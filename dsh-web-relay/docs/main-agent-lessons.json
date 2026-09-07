@@ -2,7 +2,7 @@
   "meta": {
     "schemaVersion": "0.1",
     "title": "dsh-web-relay 主 agent 语境能力 lesson 库（机器可读）",
-    "updatedAt": "2026-09-07T09:00:00.000Z",
+    "updatedAt": "2026-09-07T14:00:00.000Z",
     "carrierOf": "docs/main-agent-lesson-schema-v0.1.md",
     "statusConvention": "proposed（主 agent 产出）→ approved / in-runbook（用户或外部 AI 确认，记 confirmedBy/confirmedAt）；in-runbook=要点已并入 main-agent-runbook 正文；superseded=内容已并入他条（扩展值，机器消费时应跳过）",
     "confirmedAt": "2026-09-04T13:14:35.897Z",
@@ -613,6 +613,24 @@
         "L-2026-0907-035"
       ],
       "recordedAt": "2026-09-07T09:00:00.000Z"
+    },
+    {
+      "id": "L-2026-0907-037",
+      "title": "等待/假死问题的机制级解：①杀宿主只能后台 job（同步杀被 harness 中断，3 实证）②job 不 wait 句柄，改同消息同步 probe 查盘 ③无介入续跑靠 expr sessionId 落盘（DSH_SESSION_ID）自动注入唤醒 ④回合结束前自检未竟工作禁预告式结尾",
+      "category": "engineering-action",
+      "layer": "L1",
+      "trigger": "需要重启宿主（kill-host/restart-sync）、启动后台 job 后续接、宿主重启后期待自动续跑、回合结束前（是否还有未竟工作）",
+      "decision": "四步铁律：① harness 内杀宿主**只能用 run_in_background 后台 job**（同步 taskkill/kill-host 必被中断——工具调用与 3080 有连接，kill 即断；3 次同步 kill 全中断、3 次后台 kill 全成功实证）；② job 启动后**同一消息内不要 wait job 句柄**（跨回合必失效 + UI 悬挂 running）——改为同消息发同步 probe（Start-Sleep 65 + /status 或 /health-check）查盘上结果（uptime 归零/新 bootId = kill 已执行、watchdog 自愈拉起）；③ 无介入续跑：expr 落盘 sessionId=DSH_SESSION_ID（harness 环境变量）→ 宿主重启后 bootResumeScan 自动 wakeMainAgent 注入「宿主自愈重启·自动续跑」消息（零用户输入；实证 2 次：唤醒消息自动到达）；心跳（机制 b，15min 周期）兜底无重启场景的待办提醒；④ 输出最终文字前自问「还有未竟工作吗」——有就同一回合继续工具调用，禁止「接下来做 X」预告式结尾",
+      "rationale": "2026-09-07 一天内 6+ 次「停在后台 job / 空等 6h / UI 悬挂」复盘：根因是 run_in_background 句柄跨回合失效 + 回合以预告式文字结束（幻想自动续接）+ 无 sessionId 注入渠道。机制级解而非自律：kill 后台化（环境约束）、验证盘上化（绕开句柄）、续跑注入化（sessionId 落盘 + 宿主自动唤醒）、回合自检（行为约束兜底）",
+      "evidence": "3 次同步 kill 中断 + 3 次后台 kill 成功（watchdog.log）；唤醒消息自动到达 2 次（expr-2026-09-07_07-00-00、expr-2026-09-07_13-30-00，用户零输入）；037 结构模式演示 kill 后台 job + 唤醒自动到达；skill §5 已固化（后台 job 铁律/回合自检铁律/037 结构模式）",
+      "confidence": "high",
+      "status": "approved",
+      "suggested": "in-runbook",
+      "crossRef": [
+        "L-2026-0907-036",
+        "L-2026-0906-033"
+      ],
+      "recordedAt": "2026-09-07T14:00:00.000Z"
     }
   ]
 }

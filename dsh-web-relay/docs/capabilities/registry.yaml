@@ -320,12 +320,12 @@
   version: 2
 
 - id: host-self-restart-resume
-  name: 主 agent 自主重启宿主与续跑自检（kill-host / restart-now + bootResumeScan 语义）
+  name: 无介入重启续跑与回合闭环（kill 后台 job + 同步 probe 查盘 + sessionId 自动唤醒 + 心跳兜底 + 回合自检纪律）
   category: platform
   scope: host-ops-resume
   source: bin/watchdog.mjs
   skill: skills/dsh-web-relay-main-agent/SKILL.md
-  trigger: 主 agent 需重启宿主（有常驻 watchdog → kill-host；无常驻 → restart-now）、重启后续跑自检（/health-check bootId+resumed）、审核上下文 tailClip 截断注意
+  trigger: 主 agent 需重启宿主（有常驻 watchdog → kill-host 后台 job；无常驻 → restart-now）、重启后续跑自检（/health-check bootId+resumed）、无介入续跑（expr 落盘 DSH_SESSION_ID → 自动注入唤醒）、回合结束自检（禁止预告式结尾）、审核上下文 tailClip 截断注意
   conflicts: []
   verification:
     - file-exists: bin/watchdog.mjs
@@ -336,8 +336,17 @@
         file: skills/dsh-web-relay-main-agent/SKILL.md
         text: "宿主重启与续跑自检"
     - content-contains:
+        file: skills/dsh-web-relay-main-agent/SKILL.md
+        text: "037 结构模式"
+    - content-contains:
         file: docs/OPS-RESTART-RESUME.md
         text: "bootId"
+    - content-contains:
+        file: docs/main-agent-runbook-v0.1.md
+        text: "重启/续跑/回合闭环纪律"
+    - content-contains:
+        file: docs/main-agent-lessons.json
+        text: "L-2026-0907-037"
   lastVerified: 2026-09-07
   status: approved
-  version: 1
+  version: 2
