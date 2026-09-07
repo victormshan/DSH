@@ -66,6 +66,12 @@ description: dsh-web-relay 主 agent 核心能力与调优规范——handoff/�
 **后台 job 铁律（036 补强）**：任何 `run_in_background` 的 job 启动后必须**同一回合**内 `job_output wait` 取结果——
 句柄跨回合失效（新回合报 unknown job）且 UI 卡片悬挂为 running；等不到就查盘上外部状态（日志/health-check/steps.json）
 拿权威结果，不得让回合在"job 在跑"状态下结束。
+**harness 环境事实（037）**：**同步**执行杀宿主命令（taskkill/kill-host/restart-sync 同步跑）会被 harness 中断
+（工具调用与 3080 有连接，kill 宿主即断调用；实证：3 次同步 kill 全被中断、3 次后台 job kill 全成功）——
+harness 内杀宿主**只能用后台 job**（独立进程，kill 不影响 job）；job 后同回合 wait，句柄失效则查盘上
+（/status uptime 归零/变化、bootId 变化 = kill 已执行、watchdog 自愈拉起）。**宿主与任务状态永不死**：watchdog 自愈 +
+重启/心跳双保险保证自动恢复；agent 回合中断仅损失"本次会话"，盘上状态随时可续。restart-sync 命令保留给
+CLI/非 harness 环境；harness 内用 `run_in_background` 执行 `node watchdog.mjs kill-host`。
 **回合自检铁律（036 根治）**：输出最终文字前自问「还有未完成工作吗？」——有就必须**同一回合内继续工具调用**（一个回合
 可连续做大量工作，工具调用间无需用户交互），禁止用"接下来做 X / 等待中 / 稍后验证"预告式结尾（预告=幻想自动续接，
 回合结束即停，续接仅靠用户输入 / goal 轮（本环境 disarm 后不可靠）/ 宿主注入（仅重启或心跳有待办时）——三者都可能缺席）。
