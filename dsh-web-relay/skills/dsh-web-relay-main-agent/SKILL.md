@@ -55,8 +55,11 @@ description: dsh-web-relay 主 agent 核心能力与调优规范——handoff/�
    （自持单例锁：prepare → 树杀 → 进入监控首检拉起，成为新 watchdog）。
 3. 用户手动重启（面板/任务管理器）——仅作为兜底。
 
-纪律（lesson 032/033）：重启编排必须走**独立延迟进程**（`Start-Process powershell -WindowStyle Hidden` + sleep 10-12s，
-避免树杀命令本身被 harness 中断）；严禁先杀 watchdog；树杀宿主会断当前 agent 回合 → 编排放回合最后动作，下回合验证。
+纪律（lesson 032/033/036）：重启编排必须走**独立延迟进程**（`Start-Process powershell -WindowStyle Hidden` + sleep 10-12s，
+避免树杀命令本身被 harness 中断）；严禁先杀 watchdog；树杀宿主会断当前 agent 回合 → 编排放回合最后动作；
+**不得承诺"回合自动续接"**——插件状态机续跑（bootResumeScan resumed/restartCount）宿主重启后必然自动发生，
+但 agent 回合续接依赖 goal 轮或用户输入，二者都可能缺席（036 事故：实证成功后 6h 空等）→ 验证/收口放重启前完成，
+或明示用户"重启后发任意消息触发续接"；重启后新回合先核对 /health-check resumed 再继续。
 操作后验证：/status version 更新 + /health-check bootId 变化 + watchdog 日志新行。
 
 续跑语义（重启后自动）：
