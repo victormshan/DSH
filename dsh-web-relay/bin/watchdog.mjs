@@ -11,8 +11,11 @@ import http from 'node:http'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+// v4.9.2/lx_2: 跨平台操作抽象层（win/linux 双实现，见 lib/platform-ops.js）——Windows 行为不变
+import { createPlatformOps } from '../lib/platform-ops.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
+const platformOps = createPlatformOps()   // 按 process.platform 选用（win32 走 taskkill/netstat/reg）
 const num = (v, d) => { const n = Number(v); return Number.isFinite(n) && n > 0 ? n : d }
 
 export const CFG = {
@@ -94,14 +97,8 @@ export function parseRegValue(out, name) {
   return null
 }
 export function readRegistryEnv(name) {
-  for (const hive of [REG_USER, REG_MACHINE]) {
-    try {
-      const out = execSync(`reg query "${hive}" /v ${name}`, { encoding: 'utf8', timeout: 3000, stdio: ['ignore', 'pipe', 'pipe'] })
-      const v = parseRegValue(out, name)
-      if (v) return v
-    } catch { /* try next hive */ }
-  }
-  return null
+  // v4.9.2/lx_2: 委托 platform-ops readSecret（win 注册表 User→Machine；linux ~/.dsh/env）——Windows 行为等价
+  return platformOps.readSecret(name)
 }
 export function childEnv() {
   const env = { ...process.env }
@@ -183,18 +180,12 @@ function prepareBestEffort() {
   httpGetJson(prepareUrl(), 3000).catch(() => {}) // fire-and-forget
 }
 function killPidTree(pid) {
-  try { execSync(`taskkill /PID ${pid} /T /F`, { stdio: 'ignore' }); return true } catch (e) { return false }
+  // v4.9.2/lx_2: 委托 platform-ops（win taskkill /T /F；linux pkill -P + kill -TERM）
+  return platformOps.killPidTree(pid).ok
 }
 function findPortPid() {
-  // netstat -ano 解析 LISTENING 于 127.0.0.1:port（或 0.0.0.0:port）的 PID
-  try {
-    const out = execSync('netstat -ano', { encoding: 'utf8', timeout: 5000, stdio: ['ignore', 'pipe', 'pipe'] })
-    for (const line of out.split('\n')) {
-      const m = line.trim().match(/^\s*TCP\s+(\S+):(\d+)\s+\S+\s+LISTENING\s+(\d+)\s*$/)
-      if (m && Number(m[2]) === CFG.port && (m[1] === '127.0.0.1' || m[1] === '0.0.0.0' || m[1] === '[::]')) return Number(m[3])
-    }
-  } catch {}
-  return null
+  // v4.9.2/lx_2: 委托 platform-ops（win netstat -ano；linux ss -ltnp / lsof -iTCP）
+  return platformOps.findPortPid(CFG.port)
 }
 
 let child = null

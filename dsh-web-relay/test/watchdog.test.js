@@ -67,7 +67,10 @@ test('source 契约：watchdog 探测端点/拉起命令与 S1 spec 一致', () 
   const src = fs.readFileSync(new URL('../bin/watchdog.mjs', import.meta.url), 'utf8')
   assert.ok(src.includes('/dsh-web-relay/health-check'))
   assert.ok(src.includes('/dsh-web-relay/admin/prepare-restart'))
-  assert.ok(src.includes('taskkill /PID'))
+  // v4.9.2/lx_2: taskkill/netstat 已抽象到 lib/platform-ops.js——watchdog 委托（Windows 行为不变）
+  assert.ok(src.includes("from '../lib/platform-ops.js'"))
+  assert.ok(src.includes('platformOps.killPidTree'))
+  assert.ok(src.includes('platformOps.findPortPid'))
   assert.ok(src.includes('stormGate'))          // 防风暴
   assert.ok(src.includes('missN'))              // 连续 miss 阈值
   assert.ok(src.includes('v3.9 S3'))
