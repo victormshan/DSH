@@ -337,7 +337,7 @@
         text: "宿主重启与续跑自检"
     - content-contains:
         file: skills/dsh-web-relay-main-agent/SKILL.md
-        text: "037 结构模式"
+        text: "037 修正"
     - content-contains:
         file: docs/OPS-RESTART-RESUME.md
         text: "bootId"
