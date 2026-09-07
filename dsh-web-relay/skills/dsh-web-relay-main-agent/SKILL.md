@@ -47,8 +47,11 @@ description: dsh-web-relay 主 agent 核心能力与调优规范——handoff/�
 主 agent **具备自主重启宿主能力**，三选一：
 
 1. 常驻 watchdog 在跑（计划任务 DSH-WEB-Watchdog 或手动实例，单例锁被其持有）→
-   `node D:\DSH\dsh-web-relay\bin\watchdog.mjs kill-host`
-   树杀 3080 宿主（不持锁），watchdog 探测 miss≥3 后自愈拉起新宿主（补注入注册表 GEMINI_API_KEY/GEMINI_MODEL）。
+   **首选 `node D:\DSH\dsh-web-relay\bin\watchdog.mjs restart-sync [waitSecs]`**（v4.9.2 原子重启）：
+   一次【同步】调用 = kill-host + 内部 wait-healthy 轮询 → 返回 `RESTART_OK bootId=…` 或 `RESTART_TIMEOUT`。
+   **严禁**用 run_in_background + 自编 sleep+probe 编排重启（句柄跨回合失效 + UI 悬挂，036 事故根因）；
+   同步调用 timeout 设 ≥ waitSecs+30s。
+   或 `watchdog.mjs kill-host`（仅树杀不等，watchdog 自愈后自行核对 /health-check）。
    DRYRUN 演练：`$env:DSH_WEB_DRYRUN='1'` 后同命令（只打日志不执行）。
 2. 无常驻 watchdog（首次部署/守护丢失）→
    `node D:\DSH\dsh-web-relay\bin\watchdog.mjs restart-now`

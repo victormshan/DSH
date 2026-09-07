@@ -309,6 +309,39 @@ if (isMain) {
     }
     process.exit(0)
   }
+  // v4.9.2（原子重启，根治跨回合句柄丢失）: restart-sync [waitSecs]——kill-host + 内部轮询 wait-healthy，
+  // 宿主就绪后一次返回 RESTART_OK bootId=…；超时返回 RESTART_TIMEOUT。Agent 用【同步】单次调用即可闭环，
+  // 无需后台 job / 自编 sleep+probe（消除 run_in_background 句柄跨回合失效与 UI 悬挂）。
+  const restartSync = process.argv[2] === 'restart-sync'
+  if (restartSync) {
+    const waitSecs = Math.max(10, Number(process.argv[3] || 90))
+    if (CFG.dryRun) {
+      log(`[DRYRUN][restart-sync] kill-host + wait-healthy ${waitSecs}s（不实际执行）`)
+      console.log('RESTART_OK bootId=DRYRUN')
+      process.exit(0)
+    }
+    log(`[restart-sync] 触发优雅停机准备…`)
+    prepareBestEffort()
+    await new Promise((r) => setTimeout(r, 600))
+    const pid = findPortPid()
+    if (pid) { log(`[restart-sync] 树杀当前宿主 PID=${pid}`); killPidTree(pid) }
+    else log('[restart-sync] 未发现 3080 宿主进程（可能已不在线），直接进入健康等待')
+    const deadline = Date.now() + waitSecs * 1000
+    let healthy = null
+    while (Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 3000))
+      const p = await probe()
+      if (p.alive) { healthy = p.body; break }
+    }
+    if (healthy) {
+      log(`[restart-sync] 宿主已拉起 bootId=${healthy.bootId || '?'}`)
+      console.log(`RESTART_OK bootId=${healthy.bootId || '?'}`)
+    } else {
+      log(`[restart-sync] ${waitSecs}s 内宿主未就绪`)
+      console.log('RESTART_TIMEOUT')
+    }
+    process.exit(healthy ? 0 : 1)
+  }
   if (!acquireLock()) process.exit(0) // 单例锁：已有实例则退出
   const restartNow = process.argv[2] === 'restart-now'
   if (restartNow) {
