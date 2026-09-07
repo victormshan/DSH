@@ -2,7 +2,7 @@
   "meta": {
     "schemaVersion": "0.1",
     "title": "dsh-web-relay 主 agent 语境能力 lesson 库（机器可读）",
-    "updatedAt": "2026-09-07T02:10:00.000Z",
+    "updatedAt": "2026-09-07T09:00:00.000Z",
     "carrierOf": "docs/main-agent-lesson-schema-v0.1.md",
     "statusConvention": "proposed（主 agent 产出）→ approved / in-runbook（用户或外部 AI 确认，记 confirmedBy/confirmedAt）；in-runbook=要点已并入 main-agent-runbook 正文；superseded=内容已并入他条（扩展值，机器消费时应跳过）",
     "confirmedAt": "2026-09-04T13:14:35.897Z",
@@ -595,6 +595,24 @@
         "L-2026-0906-033"
       ],
       "recordedAt": "2026-09-07T02:10:00.000Z"
+    },
+    {
+      "id": "L-2026-0907-036",
+      "title": "树杀宿主重启 = 断 harness 会话通道，续跑只对插件状态机留痕、不自动续接 agent 回合——编排后不能承诺\"自动续接\"，必须明示需用户/goal 轮触发",
+      "category": "engineering-action",
+      "layer": "L2",
+      "trigger": "把宿主重启（kill-host/restart-now/taskkill 树杀）编排为回合最后动作，且期待后续自动推进（bootResumeScan resumed、goal 自动轮、job 通知）时",
+      "decision": "区分两层续跑：① 插件状态机续跑（bootResumeScan：resumed+restartCount+bootId 打戳）——宿主重启后**必然自动发生**（已三次实证 resumed=1）；② agent 回合续接（新回合注入）——依赖 goal 自动轮或用户输入，**两者都可能缺席**（2026-09-07 事故：重启实证成功后 6 小时无任何自动轮）。铁律：把\"验证重启结果/收口\"放在重启**前**完成或拆到独立回合；必须编排重启收尾时，明确告知用户\"重启后需发任意消息（或等 goal 轮）触发续接\"，不得承诺自动续接；若重启后无下文，新回合第一件事是核对 /health-check resumed 与目标状态，不假设任何工作已自动完成",
+      "rationale": "2026-09-07 02:58 kill-host 重启实证成功（resumed=1 expr 被自动检测、restartCount 0→1、bootId 打戳），我最后消息承诺\"由机制自动续接\"——但此后 6 小时无 goal 轮无通知，用户提问才恢复。根因：harness 会话与 dsh 宿主是两套通道，宿主重启只保证插件状态机续跑；agent 回合续接无 sessionId 注入渠道（本 expr sessionId=null）+ goal 自动轮未在该窗口触发",
+      "evidence": "resume-demo.log：02:56 编排 → 02:57 kill-host PID 20084 → 02:58 宿主 up bootId=mtq6bk7n-4b442b91 resumed=1 exprs=expr-2026-09-07_05-00-00；用户 6 小时后提问才恢复回合",
+      "confidence": "high",
+      "status": "approved",
+      "suggested": "in-skill",
+      "crossRef": [
+        "L-2026-0906-033",
+        "L-2026-0907-035"
+      ],
+      "recordedAt": "2026-09-07T09:00:00.000Z"
     }
   ]
 }
