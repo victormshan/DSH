@@ -1,6 +1,6 @@
 # dsh-web-relay 宿主托管与重启续跑运维 SOP（OPS-RESTART-RESUME）
 
-> 版本：4.x（AutoIteration 实验 V2 编写，expr-2026-09-05_13-58-07）
+> 版本：4.9.2（AutoIteration 实验 V2 编写，expr-2026-09-05_13-58-07；v4.9.2 增补 §6 无介入续跑实证）
 > 适用：watchdog 托管部署（DSH-WEB-Watchdog / DSH-Bridge-Watchdog 计划任务 + bin/watchdog.mjs v3.9.3+）
 
 ## 1. 架构总览
@@ -51,3 +51,44 @@ Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:3080/dsh-web-relay/admin/r
 # watchdog 日志（UTF8 读取——日志文件为 UTF-8，避免 GBK 控制台乱码）
 Get-Content 'C:\Users\Administrator\.dsh\logs\dsh-web-watchdog.log' -Tail 20 -Encoding UTF8
 ```
+
+## 6. 无介入续跑实证（v4.9.2，2026-09-07）
+
+### 6.1 背景与问题
+- 续跑分两层：**①状态机续跑**（bootResumeScan：resumed + restartCount + bootId 打戳 + trace 留痕）——宿主重启后**必然自动**；
+  **②agent 回合续接**（wakeMainAgent 注入新回合）——依赖 expr 有 `sessionId` 且宿主能访问注入通道。
+- 空等事故（lesson 036）：早期 expr `sessionId=null`（面板拿不到主会话 ID）→ ②不触发；harness goal 自动轮在会话恢复后被
+  disarm（仅用户可 rearm）→ 重启实证成功后 6 小时无任何推进，直到用户提问。根因 = ②的 sessionId 缺失，非状态机缺陷。
+
+### 6.2 机制落地（commit 6808a3f，tag v4.9.2）
+- **sessionId 来源**：harness 环境变量 `DSH_SESSION_ID`（形如 `session-3da39db3-…`，agent 工具进程 env 可见）。
+- **expr 落盘**：主 agent 创建/更新 expr 时把 `$env:DSH_SESSION_ID` 写入 steps.json `sessionId` 字段（skill §5 固化流程）。
+- **双回退唤醒**：lib resume 分支 `wakeSid = expr.sessionId ‖ process.env.DSH_SESSION_ID`——expr 已落盘用之；
+  否则宿主 env 有 `DSH_SESSION_ID`（watchdog childEnv 透传 / launcher 注入）时也自动唤醒。
+- 注入通道：`wakeMainAgent → apiProxy.sessions.prompt({ sessionId, mode:'queue' })`——消息排入该会话队列，
+  主 agent 自动收到「【主 agent 请协助】…」新回合（含装配注入）。
+
+### 6.3 实证事件链（2026-09-07，零用户输入）
+```
+01:41  /ask manual + sessionId=DSH_SESSION_ID → agentWoken=true（注入通道验证）
+01:43  建验证 expr expr-2026-09-07_07-00-00（busy executing, sessionId 落盘, isTest=true）
+       → kill-host（bin/watchdog.mjs kill-host）树杀宿主
+01:43  宿主自愈拉起（新 bootId）→ bootResumeScan: resumed=1（expr-07-00-00）
+       → restartCount 0→1 → wakeMainAgent(sessionId) → resumeQueuedAt 打标
+       →「宿主自愈重启·自动续跑」唤醒消息自动到达主 agent 会话（零输入）
+       → 主 agent 按续跑协议接管：git 检查残改 → 收口/清理验证载体
+```
+- 证据位：`/health-check → resumed{at,checked,resumed,resumedExprs}`；expr steps.json `restartCount/resumeQueuedAt/bootId`；
+  watchdog 日志 `Session wake queued for <sid> (expr: …) @ <ts>`。
+
+### 6.4 操作流程（保证未来 expr 无介入续跑）
+1. 主 agent 新建 expr（steps.json 首次落盘）时把 `sessionId: process.env.DSH_SESSION_ID` 一并写入（ask/execute 带 sessionId 或直接写状态文件）。
+2. 宿主重启（kill-host / restart-now / 崩溃）→ bootResumeScan 自动续跑并注入唤醒。
+3. 若宿主 env 无 DSH_SESSION_ID 且 expr 未落盘 → 退化为 trace 留痕（无注入）；届时手工 `POST /admin/resume-scan` 或用户触发。
+
+### 6.5 平台边界（如实记录）
+- 机制 b（goal 自动 rearm / harness 心跳）属 harness 平台能力，插件不可改；机制 a 已绕开该依赖。
+- `DSH_SESSION_ID` 为会话级标识：同一 workspace 会话持久；若 harness 新会话更换 ID，旧 expr 落盘的 sessionId 注入会失败
+  （mode=queue 投递到不存在会话 → 宿主日志记 wake 失败，trace 留痕，不影响状态机）。
+- 注入消息由 harness 消费时机决定（queue 模式）：通常下一回合出现；极端情况可能延迟，此时查 `resumeQueuedAt` 是否打标区分
+  「已排队」vs「harness 未消费」。
