@@ -128,17 +128,24 @@ else
 fi
 
 # register the plugin in the profile's cordis.patch.yml (idempotent)
+# v4.9.2-fix: profile 的用户层 patch 常以空数组占位（注释 + `[]`）——直接 append 会产出非法 YAML
+# （[] 后接 - insert:）。先删空占位行（^[ ]*\[[ ]*\]$），再追加 insert 块；若文件不存在则新建。
 if [ -f "$CORDIS_PATCH" ] && grep -q "dsh-web-relay" "$CORDIS_PATCH" 2>/dev/null; then
   log "step1: $CORDIS_PATCH already registers dsh-web-relay, skip"
 else
   log "step1: registering dsh-web-relay in $CORDIS_PATCH"
   if [ "$DRY_RUN" -eq 1 ]; then
-    plan "append to $CORDIS_PATCH:"
+    plan "append to $CORDIS_PATCH (after removing empty [] placeholder):"
     plan "  - insert:"
     plan "      - id: dsh-web-relay"
     plan "        name: dsh-web-relay"
   else
     mkdir -p "$PROFILE_DIR"
+    if [ -f "$CORDIS_PATCH" ]; then
+      sed -i '/^[[:space:]]*\[[[:space:]]*\]$/d' "$CORDIS_PATCH" 2>/dev/null || true
+    else
+      : > "$CORDIS_PATCH"
+    fi
     {
       echo "- insert:"
       echo "  - id: dsh-web-relay"
