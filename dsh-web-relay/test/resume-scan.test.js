@@ -46,7 +46,7 @@ test('source 标记：lib/index.js 接线（v4.0 重启续跑）', () => {
   assert.ok(src.includes('restartCount: data.restartCount || 0'))
   assert.ok(src.includes('bootResumeScan'))                         // 启动扫描
   assert.ok(src.includes('重启续跑熔断'))
-  assert.ok(src.includes('wakeMainAgent({ sessionId: st.sessionId'))
+  assert.ok(src.includes('wakeSid = st.sessionId || process.env.DSH_SESSION_ID'))  // v4.9.1 双回退唤醒
   assert.ok(src.includes('resumeHandoff(st, exprId)'))
   assert.ok(src.includes('sessionId: sessionId || null'))           // askHandler 创建落盘 sessionId
   assert.ok(src.includes('adminResumeScanHandler'))                  // 手动触发端点

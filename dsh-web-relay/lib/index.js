@@ -3924,10 +3924,12 @@ export function apply(ctx) {
 
   // v4.9.2（双保险续跑·机制 b）: 心跳自查——周期扫描「待 agent 处理」信号并注入主会话。
   // env：DSH_RELAY_HEARTBEAT_MS 周期（默认 900000=15min；0=关闭）；DSH_RELAY_HEARTBEAT_MIN_GAP_MS 注入最小间隔
-  // （默认 600000=10min 防刷屏）；DSH_RELAY_HEARTBEAT_STALE_MS executing 停滞阈值（默认 1200000=20min）。
+  // （默认 600000=10min 防刷屏）；DSH_RELAY_HEARTBEAT_STALE_MS executing 停滞阈值（默认 1200000=20min）；
+  // DSH_RELAY_HEARTBEAT_MAX_AGE_MS 陈旧过滤（默认 172800000=48h：更早的 expr 视为历史僵尸，不产生待办提醒）。
   const HEARTBEAT_MS = Number(process.env.DSH_RELAY_HEARTBEAT_MS || 900000)
   const HEARTBEAT_MIN_GAP_MS = Number(process.env.DSH_RELAY_HEARTBEAT_MIN_GAP_MS || 600000)
   const HEARTBEAT_STALE_MS = Number(process.env.DSH_RELAY_HEARTBEAT_STALE_MS || 1200000)
+  const HEARTBEAT_MAX_AGE_MS = Number(process.env.DSH_RELAY_HEARTBEAT_MAX_AGE_MS || 172800000)
   async function listExprStates(base) {
     const out = []
     try {
@@ -3960,7 +3962,7 @@ export function apply(ctx) {
       for (const base of resumeScanBases()) {
         all.push(...(await listExprStates(base).catch(() => [])))
       }
-      const pending = scanPendingSignals(all, { staleMs: HEARTBEAT_STALE_MS })
+      const pending = scanPendingSignals(all, { staleMs: HEARTBEAT_STALE_MS, maxAgeMs: HEARTBEAT_MAX_AGE_MS })
       lastHeartbeatState = {
         at: new Date().toISOString(), checked: all.length, found: pending.length, injected: false,
         items: pending.map((p) => ({ exprId: p.exprId, signals: p.signals }))

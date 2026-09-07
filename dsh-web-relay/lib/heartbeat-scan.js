@@ -8,14 +8,20 @@
  * @param {object} st expr state（readStepState 输出；含 exprId/status/autoReview/steps/updatedAt/stopReason 等）
  * @param {object} [opts]
  * @param {number} [opts.staleMs=1200000] executing 停滞阈值（默认 20 分钟）
+ * @param {number} [opts.maxAgeMs=0] 陈旧过滤：updatedAt 早于 now-maxAgeMs 的 expr 视为历史僵尸，不产生任何信号（0=不过滤）
  * @param {number} [opts.now=Date.now()]
  * @returns {{exprId: string, signals: string[], detail: string[]}} signals 空 = 无需 agent 介入
  */
-export function scanExprSignals(st, { staleMs = 1200000, now = Date.now() } = {}) {
+export function scanExprSignals(st, { staleMs = 1200000, maxAgeMs = 0, now = Date.now() } = {}) {
   if (!st || !st.exprId) return { exprId: '', signals: [], detail: [] }
   const signals = []
   const detail = []
   const steps = Array.isArray(st.steps) ? st.steps : []
+  // 陈旧过滤：心跳场景避免把数周前的遗留 expr 当待办刷屏（其状态多为历史残留，agent 无需介入）
+  if (maxAgeMs > 0) {
+    const updated = st.updatedAt ? new Date(st.updatedAt).getTime() : 0
+    if (updated > 0 && now - updated > maxAgeMs) return { exprId: st.exprId, signals, detail }
+  }
 
   // ① 续跑熔断 paused（stopReason 含「续跑熔断」）——设计上需用户/agent 介入汇报根因
   if (st.status === 'paused' && /续跑熔断|熔断/.test(st.stopReason || '')) {

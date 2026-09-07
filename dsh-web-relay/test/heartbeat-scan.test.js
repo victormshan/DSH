@@ -69,6 +69,21 @@ test('scanPendingSignals：只返回有信号的 expr 且保序', () => {
   assert.deepEqual(out.map((x) => x.exprId), ['expr-1', 'expr-3'])
 })
 
+test('maxAgeMs：陈旧 expr（updatedAt 超龄）不产生信号', () => {
+  const old = base({
+    updatedAt: new Date(now - 10 * 86400000).toISOString(), // 10 天前
+    steps: [{ id: 'r', title: '旧任务待审', status: 'review' }]
+  })
+  const r = scanExprSignals(old, { now, maxAgeMs: 172800000 }) // 48h 窗口
+  assert.deepEqual(r.signals, [])
+})
+
+test('maxAgeMs：窗口内待办仍报信号', () => {
+  const fresh = base({ steps: [{ id: 'r', title: '新待审', status: 'review' }] })
+  const r = scanExprSignals(fresh, { now, maxAgeMs: 172800000 })
+  assert.ok(r.signals.includes('review-pending'))
+})
+
 test('scanExprSignals：无效输入容错', () => {
   assert.deepEqual(scanExprSignals(null).signals, [])
   assert.deepEqual(scanExprSignals({}).signals, [])
