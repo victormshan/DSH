@@ -1764,17 +1764,21 @@ export function apply(ctx) {
             entries: [traceEntry('system', `宿主重启续跑：检测到跨 bootId 中断（restartCount=${dec.restartCount}，断点 ${st.status}${step ? `/Step ${step.id}` : ''}），尝试自动唤醒${st.sessionId ? '' : '失败（无 sessionId，降级为人工续跑）'}`)]
           }).catch(() => {})
           resumed.push({ exprId, step: step ? String(step.id) : null, status: st.status, sessionId: st.sessionId || null })
-          if (st.sessionId) {
-            const w = await wakeMainAgent({ sessionId: st.sessionId, handoffText: resumeHandoff(st, exprId) }).catch(() => ({ agentWoken: false, reason: 'wake 异常' }))
+          // v4.9.1-fix（无介入续跑实证）：sessionId 回退 harness 环境 DSH_SESSION_ID——expr 已落盘会话 ID 用之；
+          // 否则宿主 env 存在 DSH_SESSION_ID（watchdog childEnv 透传 / launcher 注入）时自动唤醒，
+          // 使「重启续跑 → 自动注入主 agent 会话」在零用户输入下成立（2026-09-07 实证：落盘 sessionId 后唤醒消息自动到达）。
+          const wakeSid = st.sessionId || process.env.DSH_SESSION_ID || null
+          if (wakeSid) {
+            const w = await wakeMainAgent({ sessionId: wakeSid, handoffText: resumeHandoff(st, exprId) }).catch(() => ({ agentWoken: false, reason: 'wake 异常' }))
             console.warn(`[dsh-web-relay] 重启续跑唤醒 ${exprId} → ${w.agentWoken ? '已唤醒（会话已排入续跑 prompt）' : '失败: ' + (w.reason || 'unknown')}`)
             // v4.4 续跑测试打标：wake 成功 → resumeQueuedAt 落盘（区分「已排队」vs「harness 未消费」）
             if (w.agentWoken) {
               st.resumeQueuedAt = new Date().toISOString()
               await writeStepState(base, exprId, st, sf).catch(() => {})
-              console.warn(`[dsh-web-relay] [bootResumeScan] Session wake queued for ${st.sessionId} (expr: ${exprId}) @ ${st.resumeQueuedAt}`)
+              console.warn(`[dsh-web-relay] [bootResumeScan] Session wake queued for ${wakeSid} (expr: ${exprId}) @ ${st.resumeQueuedAt}`)
             }
           } else {
-            console.warn(`[dsh-web-relay] 重启续跑 ${exprId}：无 sessionId，跳过唤醒（trace 已留痕，等待用户「继续」）`)
+            console.warn(`[dsh-web-relay] 重启续跑 ${exprId}：无 sessionId（expr 未落盘且宿主 env 无 DSH_SESSION_ID），跳过唤醒（trace 已留痕）`)
           }
         }
       } catch (err) { /* skip unreadable expr */ }

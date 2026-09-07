@@ -62,11 +62,13 @@ description: dsh-web-relay 主 agent 核心能力与调优规范——handoff/�
 或明示用户"重启后发任意消息触发续接"；重启后新回合先核对 /health-check resumed 再继续。
 操作后验证：/status version 更新 + /health-check bootId 变化 + watchdog 日志新行。
 
-续跑语义（重启后自动）：
+续跑语义（重启后自动，v4.9.1 实证「无介入续跑」成立）：
 - 宿主启动跑 bootResumeScan：跨 bootId 且忙态（executing/review/activeSteps 非空）expr → restartCount+1；
   paused/stopped 排除（熔断不自动续跑，防 96-96-96 死循环）；restartCount≥2 熔断 paused。
-- 有 sessionId 的 expr → resumeHandoff 注入 wakeMainAgent（自动新回合续跑）；
-  sessionId=null（无注入渠道）→ 只留痕（resume 记录 + restartCount），主 agent 靠新回合/goal 推进（需用户提问或下一回合激活）。
+- 唤醒注入（无介入关键）：wakeSid = expr.sessionId ‖ 宿主 env DSH_SESSION_ID。**主 agent 创建/更新 expr 时
+  把当前 harness 会话 ID（$env:DSH_SESSION_ID）落盘到 steps.json sessionId 字段** → 重启后 bootResumeScan
+  自动 wakeMainAgent 注入「宿主自愈重启·自动续跑」消息到主会话（2026-09-07 实证：kill-host 重启后零用户输入
+  收到唤醒消息并自动接管；resumeQueuedAt 打标=注入已排队）。
 - 续跑动作：executing → 先 git 检查残改再续；review → 重触发 /steps/auto-review；全 approved → finalize 收口；
   rejectStreak/iterationBaseCommit 跨重启保持勿重置。
 - 健康自检：GET /health-check → bootId + resumed{at,checked,resumed,paused}；GET /status → version/geminiConfigured。

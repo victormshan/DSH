@@ -112,6 +112,9 @@ export function childEnv() {
       if (v) env[name] = v
     }
   }
+  // v4.9.1-fix（无介入续跑实证）：透传 DSH_SESSION_ID——若 watchdog 自身 env 携带 harness 会话 ID
+  // （User setx / launcher 注入），宿主 spawn 时继承，bootResumeScan 即可在 expr 未落盘 sessionId 时
+  // 回退唤醒主 agent 会话（lib/index.js resume 分支 wakeSid 回退）。watchdog env 无则跳过（expr 落盘优先）。
   return env
 }
 
