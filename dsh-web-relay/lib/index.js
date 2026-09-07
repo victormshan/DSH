@@ -37,6 +37,8 @@ import {
 } from './cc-channel.js'
 // v4.9/v2.0: alternatives 多方案裁决（6 段模板 + 决策解析；见 lib/alternatives-compare.js）
 import { buildAlternativesReviewPrompt, parseAlternativesDecision } from './alternatives-compare.js'
+// v4.9.2: 心跳自查信号扫描（纯函数；双保险续跑机制 b——时间驱动，见 lib/heartbeat-scan.js）
+import { scanPendingSignals } from './heartbeat-scan.js'
 
 // v2.4-1: 插件版本（从 package.json 实时读取，避免硬编码漂移——原 statusHandler 曾长期报 1.3.0）
 export const PLUGIN_VERSION = (() => {
@@ -47,6 +49,10 @@ export const PLUGIN_VERSION = (() => {
 })()
 // v3.8 Step2（GC 定时化）: 进程级定时 GC 单例（防 apply 多次调用重复装表；finalize 触发语义保留）
 let scheduledGcTimer = null
+// v4.9.2（双保险续跑·机制 b）: 进程级心跳定时器单例 + 最近注入时间（防频/可观测）
+let scheduledHeartbeatTimer = null
+let lastHeartbeatState = null   // { at, found, injected, items: [{exprId, signals}] }——/health-check 暴露
+let lastHeartbeatInjection = 0  // 最近一次成功注入时间戳（ms）——防频
 // v3.9 S2（优雅停机）: 进程级准备状态——/admin/prepare-restart 触发后停新任务领取；
 // 状态仅存进程内（宿主重启后自然复位为可接受新任务），无需落盘
 let prepareRestartState = null
@@ -1882,6 +1888,8 @@ export function apply(ctx) {
       bootId: CURRENT_BOOT_ID,
       // v4.6.0 (V2): 最近一次续跑扫描结果（重启后 bootResumeScan 写入——可观测续跑发生）
       resumed: lastResumeScan || null,
+      // v4.9.2: 心跳自查最近一轮（双保险续跑机制 b——时间驱动待办扫描与注入；null=尚未跑或未启用）
+      heartbeat: lastHeartbeatState || null,
       // v3.9 S2: 优雅停机准备状态（watchdog / 面板可读：preparing=true 表示准备中）
       preparing: Boolean(prepareRestartState),
       preparedAt: prepareRestartState ? prepareRestartState.at : null,
@@ -3851,6 +3859,17 @@ export function apply(ctx) {
     }
   }
 
+  // v4.9.2: 心跳自查手动触发（运维/E2E——等价于周期心跳立即跑一轮；扫描待办并注入主会话）
+  const adminHeartbeatHandler = async (req, res) => {
+    try {
+      if (req.method === 'OPTIONS') return res.writeHead(204, CORS).end()
+      await heartbeatTick()
+      json(res, 200, { ok: true, heartbeat: lastHeartbeatState || null })
+    } catch (err) {
+      json(res, 500, { ok: false, error: String(err?.message || err) })
+    }
+  }
+
   const protocolHandler = async (req, res) => {
     if (req.method === 'OPTIONS') return res.writeHead(204, CORS).end()
     json(res, 200, {
@@ -3898,9 +3917,77 @@ export function apply(ctx) {
   ctx.effect(() => webServer.register({ kind: 'exact', path: '/dsh-web-relay/steps/restructure', handler: restructureHandler }), 'dsh-web-relay/steps/restructure')
   ctx.effect(() => webServer.register({ kind: 'exact', path: '/dsh-web-relay/admin/prepare-restart', handler: adminPrepareHandler }), 'dsh-web-relay/admin/prepare-restart')
   ctx.effect(() => webServer.register({ kind: 'exact', path: '/dsh-web-relay/admin/resume-scan', handler: adminResumeScanHandler }), 'dsh-web-relay/admin/resume-scan')
+  ctx.effect(() => webServer.register({ kind: 'exact', path: '/dsh-web-relay/admin/heartbeat-check', handler: adminHeartbeatHandler }), 'dsh-web-relay/admin/heartbeat-check')
 
   // v4.0 Step2/3: 宿主启动续跑扫描（重启检测 → 唤醒/熔断；异步执行不阻断路由注册）
   bootResumeScan().catch((e) => console.warn('[dsh-web-relay] 续跑扫描异常:', String((e && e.message) || e)))
+
+  // v4.9.2（双保险续跑·机制 b）: 心跳自查——周期扫描「待 agent 处理」信号并注入主会话。
+  // env：DSH_RELAY_HEARTBEAT_MS 周期（默认 900000=15min；0=关闭）；DSH_RELAY_HEARTBEAT_MIN_GAP_MS 注入最小间隔
+  // （默认 600000=10min 防刷屏）；DSH_RELAY_HEARTBEAT_STALE_MS executing 停滞阈值（默认 1200000=20min）。
+  const HEARTBEAT_MS = Number(process.env.DSH_RELAY_HEARTBEAT_MS || 900000)
+  const HEARTBEAT_MIN_GAP_MS = Number(process.env.DSH_RELAY_HEARTBEAT_MIN_GAP_MS || 600000)
+  const HEARTBEAT_STALE_MS = Number(process.env.DSH_RELAY_HEARTBEAT_STALE_MS || 1200000)
+  async function listExprStates(base) {
+    const out = []
+    try {
+      const dir = await fs.resolve(EXPERIMENTS_DIR, { cwd: base })
+      const entries = await fs.listDir(dir)
+      for (const e of entries) {
+        if (e.type !== 'file' || !/^expr-.+\.steps\.json$/.test(e.name)) continue
+        const exprId = e.name.replace(/\.steps\.json$/, '')
+        try { const st = await readStepState(base, exprId); if (st && Array.isArray(st.steps)) out.push(st) } catch { /* skip */ }
+      }
+    } catch (err) { /* base 无 experiments */ }
+    return out
+  }
+  function heartbeatHandoff(pending) {
+    return [
+      '【dsh-web-relay 心跳自查 · 有待处理任务】',
+      '',
+      `检测到 ${pending.length} 个 expr 存在待 agent 处理状态（时间驱动双保险续跑；如你正在处理可忽略并在完成后重扫）：`,
+      '',
+      ...pending.flatMap((p) => [`• ${p.exprId}：${p.signals.join('、')}`, ...p.detail.map((d) => `    - ${d}`)]),
+      '',
+      '请按信号逐项处理：review-pending → 触发 /steps/auto-review；rejected-pending → 补证据重提；',
+      'executing-stale → git 检查残改后续跑/收口；finalize-pending → /steps/finalize；resume-circuit-paused → 确认根因后 resume。',
+      '处理完毕可忽略本消息（下轮心跳无待办则不再打扰）。'
+    ].join('\n')
+  }
+  async function heartbeatTick() {
+    try {
+      const all = []
+      for (const base of resumeScanBases()) {
+        all.push(...(await listExprStates(base).catch(() => [])))
+      }
+      const pending = scanPendingSignals(all, { staleMs: HEARTBEAT_STALE_MS })
+      lastHeartbeatState = {
+        at: new Date().toISOString(), checked: all.length, found: pending.length, injected: false,
+        items: pending.map((p) => ({ exprId: p.exprId, signals: p.signals }))
+      }
+      if (pending.length === 0) return
+      // 防频：距上次成功注入小于最小间隔 → 跳过（避免每轮心跳重复刷屏）
+      if (lastHeartbeatInjection && Date.now() - lastHeartbeatInjection < HEARTBEAT_MIN_GAP_MS) return
+      // sessionId：宿主 env DSH_SESSION_ID（watchdog 透传/launcher 注入）优先，否则取待办 expr 已落盘的 sessionId
+      let sid = process.env.DSH_SESSION_ID || null
+      if (!sid) {
+        for (const p of pending) {
+          const st = all.find((a) => a.exprId === p.exprId)
+          if (st && st.sessionId) { sid = st.sessionId; break }
+        }
+      }
+      if (!sid) {
+        console.warn('[dsh-web-relay] 心跳自查：有待办但无 sessionId（expr 未落盘且宿主 env 无 DSH_SESSION_ID），仅记录留痕')
+        return
+      }
+      const w = await wakeMainAgent({ sessionId: sid, handoffText: heartbeatHandoff(pending) }).catch(() => ({ agentWoken: false, reason: 'wake 异常' }))
+      lastHeartbeatState.injected = w.agentWoken
+      if (w.agentWoken) lastHeartbeatInjection = Date.now()
+      console.warn(`[dsh-web-relay] 心跳自查：发现 ${pending.length} 个 expr 待办（${pending.map((p) => p.exprId).join(',')}）→ 注入 ${w.agentWoken ? '成功' : '失败: ' + (w.reason || 'unknown')}`)
+    } catch (err) {
+      console.warn('[dsh-web-relay] 心跳自查异常:', String((err && err.message) || err))
+    }
+  }
 
   // v3.8 Step2（GC 定时化）: 保留 finalize 触发的语义之上，增加进程内周期兜底。
   // 环境开关：DSH_RELAY_REPO_PATH 指定目标仓库（git）；DSH_RELAY_GC_MS 周期毫秒（默认 600000=10min；0/非法=关闭定时，仅保留 finalize 触发）。
@@ -3922,5 +4009,15 @@ export function apply(ctx) {
       // 无 env repoPath 或周期=0：定时 GC 停用（finalize 内联 GC 不受影响）
       console.warn('[dsh-web-relay] 定时 Shadow GC 未启用（需 DSH_RELAY_REPO_PATH 指定 git 仓库，且 DSH_RELAY_GC_MS>0）；finalize 内联 GC 仍生效')
     }
+  }
+
+  // v4.9.2（双保险续跑·机制 b）: 心跳定时器——周期扫描待办并注入主会话（时间驱动，不依赖重启事件）。
+  // 幂等：仅第一个 apply() 安装（进程级单例）；unref 防挂住宿主退出；HEARTBEAT_MS=0/非法 → 关闭。
+  if (!scheduledHeartbeatTimer && HEARTBEAT_MS > 0) {
+    scheduledHeartbeatTimer = setInterval(() => { heartbeatTick().catch(() => {}) }, HEARTBEAT_MS)
+    if (typeof scheduledHeartbeatTimer.unref === 'function') scheduledHeartbeatTimer.unref()
+    console.warn(`[dsh-web-relay] 心跳自查已启用：周期 ${Math.round(HEARTBEAT_MS / 60000)}min（注入最小间隔 ${Math.round(HEARTBEAT_MIN_GAP_MS / 60000)}min；DSH_RELAY_HEARTBEAT_MS=0 可关闭）`)
+    // 首轮立即跑一次（宿主启动即自查，不等首个周期）
+    setTimeout(() => { heartbeatTick().catch(() => {}) }, 15000)
   }
 }
