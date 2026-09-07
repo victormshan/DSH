@@ -60,6 +60,9 @@ description: dsh-web-relay 主 agent 核心能力与调优规范——handoff/�
 **不得承诺"回合自动续接"**——插件状态机续跑（bootResumeScan resumed/restartCount）宿主重启后必然自动发生，
 但 agent 回合续接依赖 goal 轮或用户输入，二者都可能缺席（036 事故：实证成功后 6h 空等）→ 验证/收口放重启前完成，
 或明示用户"重启后发任意消息触发续接"；重启后新回合先核对 /health-check resumed 再继续。
+**后台 job 铁律（036 补强）**：任何 `run_in_background` 的 job 启动后必须**同一回合**内 `job_output wait` 取结果——
+句柄跨回合失效（新回合报 unknown job）且 UI 卡片悬挂为 running；等不到就查盘上外部状态（日志/health-check/steps.json）
+拿权威结果，不得让回合在"job 在跑"状态下结束。
 操作后验证：/status version 更新 + /health-check bootId 变化 + watchdog 日志新行。
 
 续跑语义（重启后自动，v4.9.1 实证「无介入续跑」成立）：
