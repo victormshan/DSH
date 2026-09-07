@@ -20,17 +20,23 @@
     }
   },
   "files": [
-    "lib/index.js",
-    "lib/client.js",
+    "lib",
+    "bin/watchdog.mjs",
     "cordis.patch.yml",
     "skills/auto-iteration-modeling/SKILL.md",
     "skills/agent-tool-troubleshooting/SKILL.md",
     "skills/dsh-web-relay-main-agent/SKILL.md",
     "docs/auto-iteration-modeling.md",
     "docs/capability-persistence-design.md",
+    "docs/main-agent-runbook-v0.1.md",
+    "docs/main-agent-lessons.json",
+    "docs/CC-HYBRID.md",
+    "docs/OPS-RESTART-RESUME.md",
+    "docs/protocol-v2-understanding-2026-09-07.md",
     "docs/capabilities/README.md",
     "docs/capabilities/registry.yaml",
-    "scripts/verify-capabilities.mjs"
+    "scripts/verify-capabilities.mjs",
+    "scripts/verify-lessons.mjs"
   ],
   "license": "MIT"
 }
