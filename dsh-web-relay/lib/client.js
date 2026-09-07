@@ -203,9 +203,10 @@ window.__ModuleLoader__.load({
         replayTraceLabel: '相关三方发言（trace）',
         badgeRejected: '已打回',
         replayPickStep: '选择步骤…',
-        reviewChannelTitle: '审核通道：auto=API 优先（失败切网页）；web-gemini=强制网页（过程可见）',
+        reviewChannelTitle: '审核通道：auto=API 优先（失败依次切网页/本地 Claude Code）；web-gemini=强制网页；claude-code=强制本地 Claude Code（混合架构）',
         reviewChannelAuto: 'auto（API 优先）',
         reviewChannelWebGemini: 'web-gemini（网页）',
+        reviewChannelClaudeCode: 'claude-code（本地 Claude Code）',
         swarmLabel: '双角色盲审',
         swarmHint: 'Swarm：Security-Auditor + Refactoring-Architect 双角色盲审（约 2× 审核成本）；importance:high 默认开启，可关闭',
         shadowOffLabel: '关闭影子门禁',
@@ -253,6 +254,7 @@ window.__ModuleLoader__.load({
         reviewerExternal: '外部AI',
         reviewerDialog: '对话模型',
         reviewerManual: '手动',
+        reviewerClaudeCode: 'Claude Code',
         roleLabel: { user: '用户', mainagent: '主 agent', external: '外部AI' },
         parsing: '解析中…',
         parsePreview: '解析并预览',
@@ -378,9 +380,10 @@ window.__ModuleLoader__.load({
         replayTimelineLabel: 'State flow (timeline)',
         replayTraceLabel: 'Related trace entries',
         replayPickStep: 'Pick a step…',
-        reviewChannelTitle: 'Review channel: auto=API first (web fallback); web-gemini=force web (visible)',
+        reviewChannelTitle: 'Review channel: auto=API first (falls back to web then local Claude Code); web-gemini=force web; claude-code=force local Claude Code (hybrid)',
         reviewChannelAuto: 'auto (API first)',
         reviewChannelWebGemini: 'web-gemini (web)',
+        reviewChannelClaudeCode: 'claude-code (local Claude Code)',
         swarmLabel: 'Swarm dual review',
         swarmHint: 'Swarm: Security-Auditor + Refactoring-Architect dual blind review (~2× review cost); default ON for importance:high',
         shadowOffLabel: 'Disable shadow gate',
@@ -429,6 +432,7 @@ window.__ModuleLoader__.load({
         reviewerExternal: 'External AI',
         reviewerDialog: 'Dialog',
         reviewerManual: 'Manual',
+        reviewerClaudeCode: 'Claude Code',
         roleLabel: { user: 'User', mainagent: 'Main agent', external: 'External AI' },
         parsing: 'Parsing…',
         parsePreview: 'Parse & Preview',
@@ -2084,6 +2088,7 @@ window.__ModuleLoader__.load({
                     style: { ...ghostPurple, padding: '2px 8px', fontSize: 11, marginLeft: 6 }
                   }, (stepBusy && stepBusyAction === 'batchReview') ? T.batchReview + '…' : T.batchReview),
                   // v3.2.4: 审核通道选择（auto=API 优先+网页兜底；web-gemini=强制网页审核，过程可见）
+                  // v4.9.2/hb_1: 新增 claude-code=强制本地 Claude Code 审核（混合架构协议 v2.0 通道，经 D:\cc-tasks 派发）
                   h('select', {
                     value: reviewChannel,
                     onChange: (e) => setReviewChannel(e.target.value),
@@ -2092,7 +2097,8 @@ window.__ModuleLoader__.load({
                     style: { ...inputStyle, margin: '0 0 0 6px', padding: '2px 6px', fontSize: 11, width: 'auto' }
                   },
                     h('option', { value: 'auto' }, T.reviewChannelAuto),
-                    h('option', { value: 'web-gemini' }, T.reviewChannelWebGemini)
+                    h('option', { value: 'web-gemini' }, T.reviewChannelWebGemini),
+                    h('option', { value: 'claude-code' }, T.reviewChannelClaudeCode)
                   ),
                   // P2(v3.5.0): Swarm 双角色盲审开关（默认开，importance:high 生效；title 为成本提示）
                   h('label', {
@@ -2194,10 +2200,10 @@ window.__ModuleLoader__.load({
                     s.reviewedBy && h('span', {
                       style: {
                         fontSize: 10, fontWeight: 600, marginLeft: 6, padding: '1px 6px', borderRadius: 4, whiteSpace: 'nowrap',
-                        color: s.reviewedBy === 'external' ? '#93c5fd' : s.reviewedBy === 'dialog' ? '#a78bfa' : s.reviewedBy === 'mainagent' ? '#4ade80' : '#fbbf24',
-                        border: '1px solid ' + (s.reviewedBy === 'external' ? 'rgba(147,197,253,.5)' : s.reviewedBy === 'dialog' ? 'rgba(167,139,250,.5)' : s.reviewedBy === 'mainagent' ? 'rgba(74,222,128,.5)' : 'rgba(251,191,36,.5)')
+                        color: s.reviewedBy === 'external' ? '#93c5fd' : s.reviewedBy === 'dialog' ? '#a78bfa' : s.reviewedBy === 'mainagent' ? '#4ade80' : s.reviewedBy === 'claude-code' ? '#f97316' : '#fbbf24',
+                        border: '1px solid ' + (s.reviewedBy === 'external' ? 'rgba(147,197,253,.5)' : s.reviewedBy === 'dialog' ? 'rgba(167,139,250,.5)' : s.reviewedBy === 'mainagent' ? 'rgba(74,222,128,.5)' : s.reviewedBy === 'claude-code' ? 'rgba(249,115,22,.5)' : 'rgba(251,191,36,.5)')
                       }
-                    }, s.reviewedBy === 'external' ? T.reviewerExternal : s.reviewedBy === 'dialog' ? T.reviewerDialog : s.reviewedBy === 'mainagent' ? T.reviewerMainagent : T.reviewerManual),
+                    }, s.reviewedBy === 'external' ? T.reviewerExternal : s.reviewedBy === 'dialog' ? T.reviewerDialog : s.reviewedBy === 'mainagent' ? T.reviewerMainagent : s.reviewedBy === 'claude-code' ? T.reviewerClaudeCode : T.reviewerManual),
                     // v1.7: low 步骤折叠开关（详情收起时仅显示标题行）
                     lowStep && h('button', {
                       onClick: () => setLowExpanded((x) => ({ ...x, [String(s.id)]: !lowOpen })),
@@ -2429,7 +2435,7 @@ window.__ModuleLoader__.load({
                       if (/mainagent|主 ?agent 代审|自动豁免/i.test(t2)) return 'mainagent'
                       return null
                     }
-                    const rbColor = (rb) => rb === 'external' ? '#93c5fd' : rb === 'dialog' ? '#a78bfa' : rb === 'mainagent' ? '#4ade80' : '#fbbf24'
+                    const rbColor = (rb) => rb === 'external' ? '#93c5fd' : rb === 'dialog' ? '#a78bfa' : rb === 'mainagent' ? '#4ade80' : rb === 'claude-code' ? '#f97316' : '#fbbf24'
                     return h('div', {}, groups.map((g, gi) => h('div', { key: 'g' + gi, style: { marginTop: 6, border: '1px dashed ' + (g.version ? 'rgba(147,197,253,.45)' : '#27272a'), borderRadius: 6, padding: '4px 8px' } },
                       h('div', { style: { display: 'flex', alignItems: 'center', gap: 6 } },
                         g.version && h('span', { style: { fontSize: 11, fontWeight: 700, color: '#c084fc', border: '1px solid rgba(167,139,250,.5)', borderRadius: 4, padding: '0 6px' } }, 'V' + g.version + (g.total ? '/' + g.total : '')),
