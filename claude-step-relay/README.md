@@ -95,19 +95,34 @@ workflow progress rail 风格 Step List（状态点：灰=pending / 蓝色脉冲
 该界面只读，直接复用 `lib/store.mjs` 读取同一份 `STEP_RELAY_DIR` 数据，不修改任何状态；
 数据来源与 MCP 工具完全一致。
 
+## auto-iterate 技能（版本自动迭代）
+
+`skills/auto-iterate/` 是基于本 MCP server 的 Claude Code 技能：把一个仓库按「每版独立审核 → 通过才
+commit+tag → 连续 3 次打回熔断」的方式自动迭代 N 个版本，每版是 Step List 里的一步，进度可在看板实时查看。
+思路来自 dsh-web-relay 的 v1.9 AutoIteration（三方协议的两方版：主 agent 实施、独立 agent 审核、用户终验）。
+
+```bash
+npm run install-skill     # 复制到 ~/.claude/skills/auto-iterate（用户级，任何项目都能用）
+```
+
+然后在 Claude Code 里说，例如：「用 auto-iterate 把 /path/to/repo 自动迭代 2 版，目标……，验收标准 V1:…；V2:…」。
+状态机数据存在 `~/.claude/auto-iterate/state/`（可用 `AUTO_ITERATE_STATE_DIR` 改），不会写进被迭代的仓库。
+
 ## 测试
 
 ```bash
 npm test
 ```
 
-用 Node 内置 `node:test`，三个测试文件、共 30 个用例：
+用 Node 内置 `node:test`，四个测试文件、共 35 个用例：
 
 - `test/store.test.js`（18 例）：直接调用 `lib/store.mjs`，覆盖正常流程、输入校验（空标题/空
   steps/非法 status）、不存在任务的各类报错、路径穿越拦截、exprId 并发唯一性、超长文本/emoji/
   markdown 特殊字符、50 步大规模 Step List。
 - `test/mcp-protocol.test.js`（8 例）：真实拉起 `index.mjs` 子进程，走完整 MCP stdio 协议——
   工具注册、zod 入参校验的错误形态、覆盖式 `set_steps` 语义、10 路并发 `update_step`。
+- `test/auto-iterate-state.test.js`（5 例）：auto-iterate 状态机——版间门、3 次打回熔断、
+  非法 id 拦截、状态存放位置、跨项目 list。
 - `test/ui-data-dir.test.js`（4 例）：看板数据目录解析——环境变量 > 项目级 `.mcp.json` >
   `~/.claude.json` > 默认值，配置损坏时安全回退。
 

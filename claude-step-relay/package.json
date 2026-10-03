@@ -10,7 +10,8 @@
   },
   "scripts": {
     "test": "node --test test/*.js",
-    "ui": "node ui/server.mjs"
+    "ui": "node ui/server.mjs",
+    "install-skill": "node scripts/install-skill.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.0",
