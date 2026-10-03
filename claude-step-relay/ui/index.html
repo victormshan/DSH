@@ -172,7 +172,7 @@
     const stepsHtml = d.steps.map(s => `
       <div class="step ${s.status}">
         <div class="step-head">
-          <span class="step-title">${s.id}. ${escapeHtml(s.title)}</span>
+          <span class="step-title">${escapeHtml(String(s.id))}. ${escapeHtml(s.title)}</span>
           <span class="status-tag ${s.status}">${s.status}</span>
         </div>
         ${s.detail ? `<div class="step-detail">${escapeHtml(s.detail)}</div>` : ''}

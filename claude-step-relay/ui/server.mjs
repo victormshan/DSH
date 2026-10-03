@@ -55,6 +55,7 @@ const server = http.createServer((req, res) => {
   json(res, 404, { error: 'not found' })
 })
 
-server.listen(PORT, () => {
+const HOST = '127.0.0.1'
+server.listen(PORT, HOST, () => {
   console.log(`step-relay UI: http://localhost:${PORT}`)
 })
