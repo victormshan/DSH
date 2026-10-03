@@ -105,6 +105,13 @@ commit+tag → 连续 3 次打回熔断」的方式自动迭代 N 个版本，�
 npm run install-skill     # 复制到 ~/.claude/skills/auto-iterate（用户级，任何项目都能用）
 ```
 
+与三方协议对齐（v2）：每版由**另一家厂商的外部 AI** 审核——`skills/auto-iterate/review.mjs` 按模板生成审核提示，
+经 `tools/external-ai.mjs` 依次尝试 Gemini API（`GEMINI_API_KEY`）→ OpenAI 兼容接口（`DEEPSEEK_API_KEY` 或
+`EXTERNAL_AI_BASE_URL/API_KEY/MODEL`）→ dsh-web-relay 的 web-gemini 网页通道（bridge `localhost:8899`；在 WSL 里
+自动经 Windows `curl.exe` 访问）。审核记录绑定暂存区 tree，`state.mjs record` 自己读取并校验（通道强度 ≥ 门槛、
+提交 tree 与被审 tree 一致、记录一次性），实施方无法口头上报 verdict。外部 AI 不可用时默认停下等人，只有显式
+`--min-reviewer claude-subagent` 才允许同模型子 agent 审核。
+
 然后在 Claude Code 里说，例如：「用 auto-iterate 把 /path/to/repo 自动迭代 2 版，目标……，验收标准 V1:…；V2:…」。
 状态机数据存在 `~/.claude/auto-iterate/state/`（可用 `AUTO_ITERATE_STATE_DIR` 改），不会写进被迭代的仓库。
 
@@ -114,15 +121,15 @@ npm run install-skill     # 复制到 ~/.claude/skills/auto-iterate（用户级�
 npm test
 ```
 
-用 Node 内置 `node:test`，四个测试文件、共 35 个用例：
+用 Node 内置 `node:test`，四个测试文件、共 40 个用例：
 
 - `test/store.test.js`（18 例）：直接调用 `lib/store.mjs`，覆盖正常流程、输入校验（空标题/空
   steps/非法 status）、不存在任务的各类报错、路径穿越拦截、exprId 并发唯一性、超长文本/emoji/
   markdown 特殊字符、50 步大规模 Step List。
 - `test/mcp-protocol.test.js`（8 例）：真实拉起 `index.mjs` 子进程，走完整 MCP stdio 协议——
   工具注册、zod 入参校验的错误形态、覆盖式 `set_steps` 语义、10 路并发 `update_step`。
-- `test/auto-iterate-state.test.js`（5 例）：auto-iterate 状态机——版间门、3 次打回熔断、
-  非法 id 拦截、状态存放位置、跨项目 list。
+- `test/auto-iterate-state.test.js`（10 例）：auto-iterate v2 审核门——不收口头 verdict、被审 tree 与提交
+  tree 必须一致、记录一次性、强度门、伪造记录拦截、熔断、外部 AI（模拟 bridge）失败重试与不可用退出。
 - `test/ui-data-dir.test.js`（4 例）：看板数据目录解析——环境变量 > 项目级 `.mcp.json` >
   `~/.claude.json` > 默认值，配置损坏时安全回退。
 
