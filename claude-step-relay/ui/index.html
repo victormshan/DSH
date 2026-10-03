@@ -136,6 +136,7 @@
 
   async function loadTasks() {
     const res = await fetch('/api/tasks');
+    if (!res.ok) return;
     tasks = await res.json();
     renderTaskList();
     if (activeId) loadDetail(activeId);

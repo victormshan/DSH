@@ -6,7 +6,17 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
-const PORT = process.env.PORT ? Number(process.env.PORT) : 5177
+
+function resolvePort(raw) {
+  if (raw === undefined || raw.trim() === '') return 5177
+  const n = Number(raw)
+  if (!Number.isInteger(n) || n <= 0 || n > 65535) {
+    console.error(`Invalid PORT env var: ${JSON.stringify(raw)} (must be an integer 1-65535)`)
+    process.exit(1)
+  }
+  return n
+}
+const PORT = resolvePort(process.env.PORT)
 const INDEX_HTML = fs.readFileSync(path.join(__dirname, 'index.html'))
 
 // 默认指向仓库里固定的 ../../step-relay（与 cwd、操作系统无关，用 path 模块自动适配
