@@ -9,7 +9,8 @@
     "claude-step-relay": "./index.mjs"
   },
   "scripts": {
-    "test": "node --test test/*.js"
+    "test": "node --test test/*.js",
+    "ui": "node ui/server.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.0",

@@ -68,6 +68,24 @@ claude mcp add claude-step-relay -- node /绝对路径/claude-step-relay/index.m
 | `step_relay_read_trace` | 读取某任务完整轨迹 Markdown 原文 |
 | `step_relay_finalize` | 收口任务，标记整体完成 + 写最终结论 |
 
+## 任务看板（可选）
+
+只读本地 Web 界面，展示 `step_relay_list` 里的所有任务、每个任务的 Step List 与实时状态、
+以及完整三方轨迹，无需再一条条调用 MCP 工具查看：
+
+```bash
+npm run ui
+# 或指定端口：PORT=6000 npm run ui
+```
+
+打开 `http://localhost:5177`（默认端口 5177）。左侧任务列表，右侧是该任务的
+workflow progress rail 风格 Step List（状态点：灰=pending / 蓝色脉冲=executing /
+绿=done / 红=blocked），底部可展开查看轨迹 Markdown 原文。页面每 5 秒自动轮询刷新，
+也可手动点右上角「刷新」。
+
+该界面只读，直接复用 `lib/store.mjs` 读取同一份 `STEP_RELAY_DIR` 数据，不修改任何状态；
+数据来源与 MCP 工具完全一致。
+
 ## 测试
 
 ```bash
