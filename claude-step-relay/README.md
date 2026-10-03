@@ -78,16 +78,14 @@ npm run ui
 # 或指定端口：PORT=6000 npm run ui
 ```
 
-数据目录默认解析方式与 MCP server 完全一致：未设置 `STEP_RELAY_DIR` 时读取
-`process.cwd() + '/step-relay'`。注意 `npm run ui` 会把 cwd 固定在本包所在目录，
-所以它看到的始终是这个仓库自己的 `step-relay/`。要查看**其它项目**的任务（MCP
-server 是在那个项目目录下启动、写数据的），改成在那个项目目录下直接跑：
+数据目录与 MCP server 实际写入的保持一致，按以下顺序解析（启动时会打印所用目录及来源）：
 
-```bash
-node /path/to/claude-step-relay/ui/server.mjs
-```
+1. 环境变量 `STEP_RELAY_DIR`；
+2. Claude Code 的 MCP 配置中 `claude-step-relay` 的 `env.STEP_RELAY_DIR`——先查当前目录的
+   `.mcp.json`（项目级），再查 `~/.claude.json`（用户级）；
+3. 都没有时用 `process.cwd() + '/step-relay'`，与 MCP server 的默认值相同。
 
-或者显式指定：`STEP_RELAY_DIR=/path/to/that-project/step-relay npm run ui`。
+所以按 README 配好 MCP 后，直接 `npm run ui` 就能看到 MCP 写入的全部任务，不需要再写死路径。
 
 打开 `http://localhost:5177`（默认端口 5177）。左侧任务列表，右侧是该任务的
 workflow progress rail 风格 Step List（状态点：灰=pending / 蓝色脉冲=executing /
@@ -103,13 +101,15 @@ workflow progress rail 风格 Step List（状态点：灰=pending / 蓝色脉冲
 npm test
 ```
 
-用 Node 内置 `node:test`，两个测试文件、共 26 个用例：
+用 Node 内置 `node:test`，三个测试文件、共 30 个用例：
 
 - `test/store.test.js`（18 例）：直接调用 `lib/store.mjs`，覆盖正常流程、输入校验（空标题/空
   steps/非法 status）、不存在任务的各类报错、路径穿越拦截、exprId 并发唯一性、超长文本/emoji/
   markdown 特殊字符、50 步大规模 Step List。
 - `test/mcp-protocol.test.js`（8 例）：真实拉起 `index.mjs` 子进程，走完整 MCP stdio 协议——
   工具注册、zod 入参校验的错误形态、覆盖式 `set_steps` 语义、10 路并发 `update_step`。
+- `test/ui-data-dir.test.js`（4 例）：看板数据目录解析——环境变量 > 项目级 `.mcp.json` >
+  `~/.claude.json` > 默认值，配置损坏时安全回退。
 
 全程跑在临时目录（`STEP_RELAY_DIR` 指向 `os.tmpdir()` 下的隔离目录），不会污染真实
 `step-relay/` 数据；协议层测试会各自拉起一个子进程，整体耗时数十秒属正常。

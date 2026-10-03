@@ -19,8 +19,11 @@ function resolvePort(raw) {
 const PORT = resolvePort(process.env.PORT)
 const INDEX_HTML = fs.readFileSync(path.join(__dirname, 'index.html'))
 
-// 不覆盖 STEP_RELAY_DIR：未设置时让 store.mjs 用它自己的默认值
-// （process.cwd() + '/step-relay'），与 index.mjs 解析数据源的方式完全一致。
+// 数据目录要和 MCP server 写入的一致（见 data-dir.mjs）。store.mjs 在 import 时
+// 固化 STEP_RELAY_DIR，所以必须先解析、再动态 import。
+const { resolveDataDir } = await import('./data-dir.mjs')
+const dataDir = resolveDataDir()
+if (dataDir.dir) process.env.STEP_RELAY_DIR = dataDir.dir
 const store = await import('../lib/store.mjs')
 
 const json = (res, code, obj) => {
@@ -64,4 +67,5 @@ const server = http.createServer((req, res) => {
 const HOST = '127.0.0.1'
 server.listen(PORT, HOST, () => {
   console.log(`step-relay UI: http://localhost:${PORT}`)
+  console.log(`data dir: ${store.__paths.BASE_DIR}  (${dataDir.source})`)
 })
