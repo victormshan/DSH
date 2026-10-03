@@ -19,12 +19,8 @@ function resolvePort(raw) {
 const PORT = resolvePort(process.env.PORT)
 const INDEX_HTML = fs.readFileSync(path.join(__dirname, 'index.html'))
 
-// 默认指向仓库里固定的 ../../step-relay（与 cwd、操作系统无关，用 path 模块自动适配
-// Windows/WSL 路径分隔符），除非显式设置了 STEP_RELAY_DIR 覆盖。必须在 import store.mjs
-// 之前设置好 env，因为 BASE_DIR 是 store.mjs 模块加载时读取一次的。
-if (!process.env.STEP_RELAY_DIR) {
-  process.env.STEP_RELAY_DIR = path.resolve(__dirname, '..', '..', 'step-relay')
-}
+// 不覆盖 STEP_RELAY_DIR：未设置时让 store.mjs 用它自己的默认值
+// （process.cwd() + '/step-relay'），与 index.mjs 解析数据源的方式完全一致。
 const store = await import('../lib/store.mjs')
 
 const json = (res, code, obj) => {

@@ -78,6 +78,17 @@ npm run ui
 # 或指定端口：PORT=6000 npm run ui
 ```
 
+数据目录默认解析方式与 MCP server 完全一致：未设置 `STEP_RELAY_DIR` 时读取
+`process.cwd() + '/step-relay'`。注意 `npm run ui` 会把 cwd 固定在本包所在目录，
+所以它看到的始终是这个仓库自己的 `step-relay/`。要查看**其它项目**的任务（MCP
+server 是在那个项目目录下启动、写数据的），改成在那个项目目录下直接跑：
+
+```bash
+node /path/to/claude-step-relay/ui/server.mjs
+```
+
+或者显式指定：`STEP_RELAY_DIR=/path/to/that-project/step-relay npm run ui`。
+
 打开 `http://localhost:5177`（默认端口 5177）。左侧任务列表，右侧是该任务的
 workflow progress rail 风格 Step List（状态点：灰=pending / 蓝色脉冲=executing /
 绿=done / 红=blocked），底部可展开查看轨迹 Markdown 原文。页面每 5 秒自动轮询刷新，
