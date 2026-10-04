@@ -121,7 +121,7 @@ npm run install-skill     # 复制到 ~/.claude/skills/auto-iterate（用户级�
 npm test
 ```
 
-用 Node 内置 `node:test`，四个测试文件、共 40 个用例：
+用 Node 内置 `node:test`，四个测试文件、共 42 个用例：
 
 - `test/store.test.js`（18 例）：直接调用 `lib/store.mjs`，覆盖正常流程、输入校验（空标题/空
   steps/非法 status）、不存在任务的各类报错、路径穿越拦截、exprId 并发唯一性、超长文本/emoji/

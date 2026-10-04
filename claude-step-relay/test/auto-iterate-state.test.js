@@ -189,3 +189,34 @@ test('review run：没有任何外部 AI 可用 → exit 3（由技能决定降�
   assert.equal(r.code, 3, r.err)
   assert.equal(r.out.unavailable, true)
 })
+
+test('review run：大 diff 按文件分段审核，任一段打回即整版打回', async () => {
+  const t = setup()
+  const b = await mockBridge(['VERDICT: APPROVED\n\n- 无', 'VERDICT: REJECTED\n\n- 【阻断】b.txt 有问题'])
+  try {
+    init(t, 'chunk', 1)
+    fs.writeFileSync(path.join(t.repo, 'a.txt'), 'A'.repeat(300) + '\n')
+    fs.writeFileSync(path.join(t.repo, 'b.txt'), 'B'.repeat(300) + '\n')
+    const env = { ...t.env, DSH_RELAY_BRIDGE: b.url, AUTO_ITERATE_CHUNK_CHARS: '600' }
+    const r = await runAsync(t, env, 'run', '--id', 'chunk', '--provider', 'web-gemini')
+    assert.equal(r.code, 0, r.err)
+    assert.equal(r.out.verdict, 'rejected')
+    assert.equal(b.seen.prompts.length, 2)
+    assert.match(b.seen.prompts[0], /第 1\/2 段，只含 a\.txt/)
+    assert.doesNotMatch(b.seen.prompts[0], /BBBB/)
+    const rec = JSON.parse(fs.readFileSync(r.out.record, 'utf8'))
+    assert.match(rec.text, /分 2 段审核/)
+    assert.match(rec.text, /第 2\/2 段（b\.txt）/)
+  } finally {
+    b.server.close()
+  }
+})
+
+test('chunkDiff：小文件合并、超大文件按行切分', async () => {
+  const { chunkDiff } = await import(path.join(SKILL, 'review.mjs'))
+  const big = Array.from({ length: 50 }, (_, i) => `+line ${i}`).join('\n')
+  const chunks = chunkDiff([{ file: 'x', diff: 'aa\n' }, { file: 'y', diff: 'bb\n' }, { file: 'z', diff: big }], 120)
+  assert.deepEqual(chunks[0].files, ['x', 'y'])
+  assert.ok(chunks.length > 2 && chunks.every((c) => c.diff.length <= 120 + 20))
+  assert.match(chunks[1].files[0], /z（第 1\/\d+ 部分）/)
+})
