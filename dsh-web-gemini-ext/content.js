@@ -155,9 +155,24 @@ function clearInput(el) {
 // 事故（2026-10-04 实测）：长提示（6KB 以上）点击发送后 Gemini 需要数秒才清空输入框，原实现只等
 // 0.7s（按钮）/0.9s（Enter）就判 no-effect，接着尝试下一种方式（可能重复发送），最后判 SEND_FAIL
 // 并清掉其实已经发出去的输入。现在每次尝试后按提示长度持续检测，全部方式失败后再给一段宽限。
+// @timeouts-begin —— content.js / background.js / bridge-server.mjs 三处必须逐字一致（test/timeouts.test.mjs 校验）
+// v0.4.3 超时链：content 内部最坏总耗时 < background 等 content 的时长 < bridge 判 processing 超时；
+// 都随提示长度增长（长审核 Gemini 常需 2–4 分钟），避免一层还在等、另一层已判超时。
+const SEND_CANDIDATES_MAX = 3
+function sendSettleMsFor(len) { return Math.min(10000, 2000 + Math.ceil((len || 0) / 4)) }
+function replyMaxMsFor(len) { return Math.min(240000, 60000 + 15 * (len || 0)) }
+function contentBudgetMsFor(len) {
+  const settle = sendSettleMsFor(len)
+  // 按钮候选（等可用 + 等生效）+ Enter/requestSubmit/宽限 + 填入 + 等回答 + 兜底
+  return SEND_CANDIDATES_MAX * (settle + Math.max(1500, settle / 2)) + 3 * settle + 3000 + replyMaxMsFor(len) + 5000
+}
+function backgroundTimeoutMsFor(len) { return contentBudgetMsFor(len) + 15000 }
+function bridgeProcessingTimeoutMsFor(len) { return Math.max(120000, backgroundTimeoutMsFor(len) + 30000) }
+// @timeouts-end
+
 /** 发送后等待"已发送"信号的时长：2s 起，每 4 个字符加 1ms，最多 10s。 */
 function sendSettleMs(promptLength) {
-  return Math.min(10000, 2000 + Math.ceil((promptLength || 0) / 4))
+  return sendSettleMsFor(promptLength)
 }
 
 /** 在 ms 毫秒内每 200ms 检测一次 ok()，任一次为真即返回 true。 */
@@ -519,7 +534,8 @@ async function handleTask(task) {
   const sendAttempts = []
   let sent = false
   const settleMs = sendSettleMs(task.prompt.length)
-  const cands = sendButtonCandidates(input)
+  // 候选数封顶，保证最坏耗时可预算（见超时链 contentBudgetMsFor）
+  const cands = sendButtonCandidates(input).slice(0, SEND_CANDIDATES_MAX)
   for (const b of cands) {
     if (sent) break
     // 长提示粘贴后按钮可能要更久才可用
@@ -566,13 +582,14 @@ async function handleTask(task) {
     throw err
   }
   console.log('[web-gemini] 已发送任务', task.id)
-  const answer = await waitReply(60000, baseCount, beforePageText, task.prompt)
+  const replyMax = replyMaxMsFor(task.prompt.length)
+  const answer = await waitReply(replyMax, baseCount, beforePageText, task.prompt)
   console.log('[web-gemini] 任务', task.id, '回复完成, 长度', answer.length, '| 内容前40:', JSON.stringify(answer.slice(0, 40)))
   // v2.4.0（wg-gap-analysis 评审修复）：waitReply 有硬兜底 setTimeout(done, maxMs+5000)，
   // 未捕获到回复文本时同样 resolve（空串）→ 原实现把空串当成功答案返回 → background 侧静默
   // 失败 → 任务永久 processing。此处补终态检查：空回复一律 throw 带诊断。
   if (!answer) {
-    const diag = 'EMPTY_REPLY: 65s 内未捕获到回复文本（选择器未命中 Gemini 回复 DOM，或页面确实无响应），当前 URL=' + location.href
+    const diag = 'EMPTY_REPLY: ' + Math.round((replyMax + 5000) / 1000) + 's 内未捕获到回复文本（选择器未命中 Gemini 回复 DOM，或页面确实无响应），当前 URL=' + location.href
     console.error('[web-gemini]', diag)
     throw new Error(diag)
   }
@@ -600,5 +617,5 @@ console.log('[web-gemini] content 已加载')
 
 // 测试钩子：仅在 Node 测试环境（vm 上下文提供 __exports）中导出纯函数，浏览器中无副作用。
 if (typeof __exports === 'object' && __exports) {
-  Object.assign(__exports, { promptFingerprint, rememberOwnPrompt, isOwnResidue, clearInput, readInput, sendSettleMs, waitSent })
+  Object.assign(__exports, { promptFingerprint, rememberOwnPrompt, isOwnResidue, clearInput, readInput, sendSettleMs, waitSent, replyMaxMsFor, contentBudgetMsFor })
 }

@@ -72,6 +72,21 @@ let workerTabInfo = null
 //      （默认 90s），故取 120s，确保是"最后防线"而不是抢跑。
 //   ② 历史任务清理——done/failed 超过 RETENTION_MS 后从内存 Map 删除，避免长期运行
 //      （配合 bridge-watchdog.mjs 常驻）内存无界增长。
+// @timeouts-begin —— content.js / background.js / bridge-server.mjs 三处必须逐字一致（test/timeouts.test.mjs 校验）
+// v0.4.3 超时链：content 内部最坏总耗时 < background 等 content 的时长 < bridge 判 processing 超时；
+// 都随提示长度增长（长审核 Gemini 常需 2–4 分钟），避免一层还在等、另一层已判超时。
+const SEND_CANDIDATES_MAX = 3
+function sendSettleMsFor(len) { return Math.min(10000, 2000 + Math.ceil((len || 0) / 4)) }
+function replyMaxMsFor(len) { return Math.min(240000, 60000 + 15 * (len || 0)) }
+function contentBudgetMsFor(len) {
+  const settle = sendSettleMsFor(len)
+  // 按钮候选（等可用 + 等生效）+ Enter/requestSubmit/宽限 + 填入 + 等回答 + 兜底
+  return SEND_CANDIDATES_MAX * (settle + Math.max(1500, settle / 2)) + 3 * settle + 3000 + replyMaxMsFor(len) + 5000
+}
+function backgroundTimeoutMsFor(len) { return contentBudgetMsFor(len) + 15000 }
+function bridgeProcessingTimeoutMsFor(len) { return Math.max(120000, backgroundTimeoutMsFor(len) + 30000) }
+// @timeouts-end
+
 const PROCESSING_TIMEOUT_MS = 120000
 const RETENTION_MS = 3600000
 const SWEEP_INTERVAL_MS = 15000
@@ -97,7 +112,9 @@ function sweepTasks() {
     // ② processing 超时（消费者未回传终态）→ failed
     if (t.status === 'processing' && t.claimedAt) {
       const elapsed = now - new Date(t.claimedAt).getTime()
-      if (elapsed >= PROCESSING_TIMEOUT_MS) {
+      // v0.4.3: 按任务提示长度计算（不低于 PROCESSING_TIMEOUT_MS），保证晚于扩展各层自己的超时
+      const limit = Math.max(PROCESSING_TIMEOUT_MS, bridgeProcessingTimeoutMsFor(String(t.prompt || '').length))
+      if (elapsed >= limit) {
         t.status = 'failed'
         t.error = `server 端超时兜底：processing ${Math.round(elapsed / 1000)}s 无终态（消费者未回传 submit-answer/submit-error）`
         t.completedAt = new Date().toISOString()

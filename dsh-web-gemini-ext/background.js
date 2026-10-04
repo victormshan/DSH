@@ -33,6 +33,21 @@ const TAB_ENSURE_INTERVAL_MS = 30000
 let lastEnsureTabAt = 0
 // v0.4.0（P1）: 页面自愈重载节流（{ tabId: lastReloadAt }）——防止失败时 reload 风暴
 const tabReloadAt = new Map()
+// @timeouts-begin —— content.js / background.js / bridge-server.mjs 三处必须逐字一致（test/timeouts.test.mjs 校验）
+// v0.4.3 超时链：content 内部最坏总耗时 < background 等 content 的时长 < bridge 判 processing 超时；
+// 都随提示长度增长（长审核 Gemini 常需 2–4 分钟），避免一层还在等、另一层已判超时。
+const SEND_CANDIDATES_MAX = 3
+function sendSettleMsFor(len) { return Math.min(10000, 2000 + Math.ceil((len || 0) / 4)) }
+function replyMaxMsFor(len) { return Math.min(240000, 60000 + 15 * (len || 0)) }
+function contentBudgetMsFor(len) {
+  const settle = sendSettleMsFor(len)
+  // 按钮候选（等可用 + 等生效）+ Enter/requestSubmit/宽限 + 填入 + 等回答 + 兜底
+  return SEND_CANDIDATES_MAX * (settle + Math.max(1500, settle / 2)) + 3 * settle + 3000 + replyMaxMsFor(len) + 5000
+}
+function backgroundTimeoutMsFor(len) { return contentBudgetMsFor(len) + 15000 }
+function bridgeProcessingTimeoutMsFor(len) { return Math.max(120000, backgroundTimeoutMsFor(len) + 30000) }
+// @timeouts-end
+
 const RELOAD_THROTTLE_MS = 60000
 // v0.4.0: 最近一次 offscreen 保活心跳（供 get-status 展示，判断 SW 是否被持续续期）
 let lastKeepaliveAt = null
@@ -181,7 +196,8 @@ async function pollOnce() {
       // 现在单次等待给 70s（content.js 内部：输入约 3s + waitReply 上限 60s + 5s 兜底 = 65s 之内
       // 必然 sendResponse），超时即视为 NO_RESPONSE 进入 submit-error，使宿主在 90s 停滞阈值前
       // 拿到明确诊断而非 stalled 兜底。
-      const SEND_TIMEOUT_MS = 70000
+      // v0.4.3: 按提示长度计算（超时链见 @timeouts 块），不再固定 70s
+      const SEND_TIMEOUT_MS = backgroundTimeoutMsFor(String(d.task.prompt || '').length)
       const sendWithTimeout = (tabId, msg) => Promise.race([
         chrome.tabs.sendMessage(tabId, msg).catch(() => null),
         new Promise((resolve) => setTimeout(() => resolve({ __timeout: true }), SEND_TIMEOUT_MS)),
@@ -194,10 +210,12 @@ async function pollOnce() {
             console.warn('[web-gemini] 任务', d.task.id, 'sendMessage 第', attempt + 1, '次重试（Tab', target.id + '）')
         }
         const r = await sendWithTimeout(target.id, { type: 'handle-task', task: d.task })
-        // 超时哨兵不视为有效响应（继续下一轮重试；最后一轮结束后按 resp===null 走 NO_RESPONSE）
+        // 超时哨兵不视为有效响应。v0.4.3: 超时后**不再重发**——content 可能只是慢、任务已在 Gemini
+        // 里执行，重发会重复提问；只有 sendMessage 直接失败（content 未注入）才进入下一轮重试。
         if (r && r.__timeout) {
           console.warn('[web-gemini] 任务', d.task.id, 'sendMessage 超时', SEND_TIMEOUT_MS + 'ms（content script 无响应，Tab', target.id + '）')
           resp = null
+          break
         } else {
           resp = r
         }
