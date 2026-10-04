@@ -127,21 +127,65 @@ function innermostEditable(el) {
   return inner.length ? inner[inner.length - 1] : el
 }
 
-/** 清空输入框（失败时清理自己写入的残留；selectAll+delete 对 contenteditable 最通用）。 */
+/** 清空输入框（失败时清理自己写入的残留；selectAll+delete 对 contenteditable 最通用）。
+ *  v0.4.3：去掉原来的 Enter 兜底——在 Gemini 输入框里按 Enter 就是「发送」，会把残留提示发出去。
+ *  返回是否已清空，由调用方决定如何报错。 */
 function clearInput(el) {
-  if (!el) return
+  if (!el) return true
   try {
     el.focus()
     if (el.isContentEditable) {
       document.execCommand('selectAll', false, null)
       document.execCommand('delete', false, null)
-      if (readInput(el).trim()) pressEnter(el)   // 兜底：部分实现走按键删除
+      if (readInput(el).trim()) {
+        // 兜底：直接清空节点并通知编辑器（不派发任何按键）
+        el.textContent = ''
+        el.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'deleteContentBackward' }))
+      }
     } else {
       const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set
       setter.call(el, '')
       el.dispatchEvent(new Event('input', { bubbles: true }))
     }
-  } catch (e) { /* 清理失败不影响主流程 */ }
+  } catch (e) { /* 清理失败由返回值体现 */ }
+  return !readInput(el).trim()
+}
+
+// ---- v0.4.3（自身残留识别）----
+// 事故（2026-10-04 实测）：发送失败或页面中断后，扩展自己写入的提示残留在输入框里；下一次任务
+// 把它当成「用户正在输入」报 INPUT_BUSY 放弃——每次都要白白失败一轮，且残留一直不清。
+// 做法：写入前把提示指纹记入本标签页的 sessionStorage（页面刷新后仍在）；遇到残留时，与指纹
+// 吻合则视为自身残留→清理后继续，否则仍按「用户正在输入」保护（语义不变）。
+const OWN_PROMPTS_KEY = 'dsh-web-gemini:own-prompts'
+const OWN_PROMPTS_MAX = 8
+const FINGERPRINT_CHARS = 80
+
+/** 指纹：去掉所有空白后的前 N 个字符（contenteditable 读回时换行/空格可能被改写）。 */
+function promptFingerprint(text) {
+  return String(text || '').replace(/\s+/g, '').slice(0, FINGERPRINT_CHARS)
+}
+
+function loadOwnPrompts(storage) {
+  try { return JSON.parse(storage.getItem(OWN_PROMPTS_KEY) || '[]') } catch (e) { return [] }
+}
+
+function rememberOwnPrompt(text, storage = sessionStorage) {
+  try {
+    const list = loadOwnPrompts(storage).filter((f) => f !== promptFingerprint(text))
+    list.push(promptFingerprint(text))
+    storage.setItem(OWN_PROMPTS_KEY, JSON.stringify(list.slice(-OWN_PROMPTS_MAX)))
+  } catch (e) { /* 存储不可用时退化为旧行为（一律 INPUT_BUSY） */ }
+}
+
+/** 残留是否为本扩展先前写入的提示（含被截断/部分发送后的前缀情况）。 */
+function isOwnResidue(text, storage = sessionStorage) {
+  const fp = promptFingerprint(text)
+  if (!fp) return false
+  // 至少吻合 20 个字符（指纹本身更短时要求整条吻合），避免"你是"之类的短输入被误认
+  return loadOwnPrompts(storage).some((own) => {
+    const need = Math.min(20, own.length)
+    return fp.length >= need && (own.startsWith(fp) || fp.startsWith(own))
+  })
 }
 
 /** 发送按钮候选链（显式选择器优先，再按语义兜底），供多次尝试。 */
@@ -415,7 +459,19 @@ async function handleTask(task) {
   }
   // v0.4.1（用户输入保护）: 覆盖前先读原内容——非空即视为"用户正在输入"，
   // 直接放弃本次发送（不覆盖、不留残留、不 reload），交回宿主走下一级通道。
-  const preExisting = readInput(input).trim()
+  // v0.4.3: 例外——残留正是本扩展先前写入的提示时，清理后继续（清不掉则报 INPUT_STUCK 并请求 reload）。
+  let preExisting = readInput(input).trim()
+  if (preExisting && isOwnResidue(preExisting)) {
+    console.warn('[web-gemini] 输入框残留为自身先前写入的提示，清理后继续 | 前30=', JSON.stringify(preExisting.slice(0, 30)))
+    if (!clearInput(input)) {
+      const diag = 'INPUT_STUCK: 自身残留提示无法清除 | 前30=' + JSON.stringify(readInput(input).trim().slice(0, 30)) + ' | ' + domDiagnostics(input)
+      console.error('[web-gemini]', diag)
+      const err = new Error(diag)
+      err.needsReload = true
+      throw err
+    }
+    preExisting = ''
+  }
   if (preExisting) {
     const diag = 'INPUT_BUSY: 输入框已有未发送内容（疑似用户正在输入，已放弃本次发送以免覆盖）' +
       ' | 内容前30=' + JSON.stringify(preExisting.slice(0, 30))
@@ -426,6 +482,7 @@ async function handleTask(task) {
   const baseCount = replyNodes().length
     // 记录发送前页面文本，用于新回复节点未被选择器捕获时的兜底提取
     const beforePageText = pageText()
+  rememberOwnPrompt(task.prompt)
   await setInputValue(input, task.prompt)
   await sleep(400)
   const verify = readInput(input)
@@ -513,3 +570,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 // 就绪通知（background 开始轮询）
 chrome.runtime.sendMessage({ type: 'bridge-ready' }).catch(() => {})
 console.log('[web-gemini] content 已加载')
+
+// 测试钩子：仅在 Node 测试环境（vm 上下文提供 __exports）中导出纯函数，浏览器中无副作用。
+if (typeof __exports === 'object' && __exports) {
+  Object.assign(__exports, { promptFingerprint, rememberOwnPrompt, isOwnResidue, clearInput, readInput })
+}
