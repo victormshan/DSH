@@ -4,13 +4,53 @@
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
+// ---- v0.4.0（Chrome 侧加固 P1）: 页面健康探针 ----
+// 供 background 在每次轮询时携带上报（authState/isReady），使桥接能"秒级"识别
+// "未登录 / 页面未就绪"，而不是等任务超时（60s pending 早退或 120s sweep）。
+// 判定保持轻量（只查关键节点，不做完整 DOM 遍历）：
+//   - isReady：存在可编辑输入框（getInput 命中）→ true
+//   - authState：命中国家登录入口特征（Sign in / 登录）且无输入框 → LOGGED_OUT；
+//                有输入框 → OK；否则 UNKNOWN
+function pageHealth() {
+  let isReady = false
+  try { isReady = Boolean(getInput()) } catch { isReady = false }
+  let authState = 'UNKNOWN'
+  if (isReady) authState = 'OK'
+  else {
+    const txt = (document.body && document.body.innerText ? document.body.innerText : '').slice(0, 2000).toLowerCase()
+    const hasSignIn = /sign in|登录|signin|log in/.test(txt)
+    if (hasSignIn) authState = 'LOGGED_OUT'
+  }
+  return { authState, isReady, url: location.href, at: Date.now() }
+}
+
 // ---- DOM 工具（宽松选择器，避开易变的 class 名）----
+// v0.4.0（P1——选择器降级链）: 多套候选显式化，任一命中即可（应对 Gemini 页面改版导致的选择器漂移）。
+// 顺序：① 语义属性（aria-label/role，最稳）② 富文本输入容器 ③ 原生 textarea ④ 最后可见输入兜底。
 function getInput() {
-  // 精确优先：contenteditable + 聊天相关 aria-label/role；回退现选择器
+  const pick = (sel) => { try { return document.querySelector(sel) } catch { return null } }
+  const visible = (el) => {
+    if (!el) return false
+    const r = el.getBoundingClientRect && el.getBoundingClientRect()
+    return !r || (r.width > 0 && r.height > 0)
+  }
+  // ① 语义属性优先（跨改版最稳）
+  const semantic = [
+    '[contenteditable="true"][role="textbox"]',
+    '[contenteditable="true"][aria-label*="prompt" i]',
+    '[contenteditable="true"][aria-label*="message" i]',
+    '[contenteditable="true"][aria-label*="输入"]',
+    '[contenteditable="true"][aria-label*="对话"]',
+    'rich-textarea [contenteditable="true"]',
+    'textarea[aria-label*="prompt" i]',
+    'textarea[placeholder*="prompt" i]',
+  ]
+  for (const sel of semantic) { const el = pick(sel); if (visible(el)) return el }
+  // ② 任意 contenteditable（原实现）——按 chat 语义过滤后取最后一个（Gemini 主输入在页面下方）
   const candidates = [
     ...document.querySelectorAll('[contenteditable="true"]'),
     ...document.querySelectorAll('textarea')
-  ]
+  ].filter(visible)
   const chat = candidates.find((el) => {
     const label = (el.getAttribute('aria-label') || '').toLowerCase()
     const role = (el.getAttribute('role') || '').toLowerCase()
@@ -63,6 +103,83 @@ function pressEnter(el) {
     el.dispatchEvent(new KeyboardEvent(type, { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true }))
   }
 }
+
+// ---- v0.4.1（用户输入保护 + 失败自诊断）----
+// 事故背景（2026-09-11 端到端实测）：content script 直接把 prompt 写进 Gemini 输入框，
+// 若用户当时正在输入，其内容会被**静默覆盖**（实测发生过，用户侧表现为"我的输入没了"）；
+// 且发送失败时把测试文字残留在框里。以下三条纪律：
+//   ① 覆盖前先读原内容，非空则视为"用户正在输入"→ 直接放弃本次发送（INPUT_BUSY，不覆盖、不残留）；
+//   ② 失败时若曾经有原内容则尽力还原，无原内容则清掉自己写入的残留（不留垃圾）；
+//   ③ 失败诊断带上 DOM 结构摘要（可用性数据），使下一次失败能直接定位选择器，无需人工翻 DOM。
+
+/** 读取输入框当前文本（contenteditable 用 innerText，避免把子节点装饰文字算进来）。 */
+function readInput(el) {
+  if (!el) return ''
+  if (el.isContentEditable) return (el.innerText || el.textContent || '')
+  return el.value || ''
+}
+
+/** contenteditable 常出现"外层可编辑 + 内层真正可编辑"的嵌套：深入最内层，避免事件派发错元素。 */
+function innermostEditable(el) {
+  if (!el || !el.isContentEditable) return el
+  const inner = [...el.querySelectorAll('[contenteditable="true"], [contenteditable=""]')]
+    .filter((x) => x !== el && x.offsetParent !== null)
+  return inner.length ? inner[inner.length - 1] : el
+}
+
+/** 清空输入框（失败时清理自己写入的残留；selectAll+delete 对 contenteditable 最通用）。 */
+function clearInput(el) {
+  if (!el) return
+  try {
+    el.focus()
+    if (el.isContentEditable) {
+      document.execCommand('selectAll', false, null)
+      document.execCommand('delete', false, null)
+      if (readInput(el).trim()) pressEnter(el)   // 兜底：部分实现走按键删除
+    } else {
+      const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set
+      setter.call(el, '')
+      el.dispatchEvent(new Event('input', { bubbles: true }))
+    }
+  } catch (e) { /* 清理失败不影响主流程 */ }
+}
+
+/** 发送按钮候选链（显式选择器优先，再按语义兜底），供多次尝试。 */
+function sendButtonCandidates(input) {
+  const root = composerRoot(input)
+  const out = []
+  const seen = new Set()
+  const push = (el) => { if (el && !seen.has(el) && el.offsetParent !== null) { seen.add(el); out.push(el) } }
+  for (const sel of [
+    'button[data-test-id="send-button"]', '[data-test-id="send-button"]',
+    'button[aria-label*="Send" i]', 'button[aria-label*="发送"]', 'button[aria-label*="傳送"]',
+    'button[aria-label*="送出"]', 'button[aria-label*="提交"]',
+    'button.send-button', 'button[class*="send-button" i]', 'button[class*="sendButton" i]',
+  ]) {
+    try { push(root.querySelector(sel)) } catch (e) { /* 非法选择器忽略 */ }
+    try { push(document.querySelector(sel)) } catch (e) { /* 同上 */ }
+  }
+  for (const b of visibleIconButtons(root)) if (isSubmitLike(b)) push(b)
+  return out
+}
+
+/** 失败诊断：把"页面到底给了什么"压缩成一行可审计数据。 */
+function domDiagnostics(input) {
+  const root = composerRoot(input)
+  const btns = visibleIconButtons(root).slice(0, 6).map((b) => {
+    const cls = (typeof b.className === 'string' ? b.className : '').split(/\s+/).filter(Boolean).slice(0, 2).join('.')
+    return describeButton(b) + '[' + (b.tagName || '').toLowerCase() + (cls ? '.' + cls : '') + ',disabled=' + Boolean(b.disabled) + ']'
+  })
+  return 'input=' + (input ? (input.tagName || '').toLowerCase() + (input.isContentEditable ? '/ce' : '') : 'null') +
+    ' | composerBtns=' + (btns.length ? btns.join(' ; ') : '无') +
+    ' | entrySelectors命中=' + JSON.stringify({
+      'send-button': Boolean(root.querySelector('button[data-test-id="send-button"]')),
+      'ariaSend': Boolean(root.querySelector('button[aria-label*="Send" i], button[aria-label*="发送"]')),
+      'classSend': Boolean(root.querySelector('button[class*="send" i]')),
+    }) +
+    ' | activeEl=' + (document.activeElement ? (document.activeElement.tagName || '').toLowerCase() + (document.activeElement.isContentEditable ? '/ce' : '') : 'null')
+}
+
 async function setInputValue(el, text) {
   el.focus()
   if (el.isContentEditable) {
@@ -282,59 +399,108 @@ async function findNewSubmitButton(input) {
 
 
 async function handleTask(task) {
-  const input = getInput()
-  if (!input) { console.error('[web-gemini] 未找到输入框'); return '' }
+  const input = innermostEditable(getInput())
+  if (!input) {
+    // v2.4.0（wg-gap-analysis 2026-09-10 评审修复）：原实现只 console.error + return ''，
+    // handleTask 正常 resolve 空串 → background 侧 resp.answer 为空且无 error → 静默失败
+    // → bridge 任务永久停留 processing（本次事故根因之一）。改为 throw 带诊断的 Error，
+    // 由 L337-345 既有 .catch 上报 resp.error（遵守不变式：要么 resolve 非空 answer，要么 throw）。
+    const diag = 'INPUT_NOT_FOUND: 未找到输入框（页面可能未登录/未加载完成/DOM 结构变化），当前 URL=' + location.href
+    console.error('[web-gemini]', diag)
+    // v0.4.0（P1——reload 自愈）: 标记 needsReload——页面态异常（未就绪/改版）时让 background
+    // 顺手重载一次标签页（节流），使下一次任务能命中新页面，而非持续失败。
+    const err = new Error(diag)
+    err.needsReload = true
+    throw err
+  }
+  // v0.4.1（用户输入保护）: 覆盖前先读原内容——非空即视为"用户正在输入"，
+  // 直接放弃本次发送（不覆盖、不留残留、不 reload），交回宿主走下一级通道。
+  const preExisting = readInput(input).trim()
+  if (preExisting) {
+    const diag = 'INPUT_BUSY: 输入框已有未发送内容（疑似用户正在输入，已放弃本次发送以免覆盖）' +
+      ' | 内容前30=' + JSON.stringify(preExisting.slice(0, 30))
+    console.warn('[web-gemini]', diag)
+    throw new Error(diag)
+  }
   // 发送前记录回复节点基线（旧对话回复不参与抓取）
   const baseCount = replyNodes().length
     // 记录发送前页面文本，用于新回复节点未被选择器捕获时的兜底提取
     const beforePageText = pageText()
   await setInputValue(input, task.prompt)
   await sleep(400)
-  const send = getSendButton()
-  const verify = input.isContentEditable ? (input.textContent || '') : (input.value || '')
+  const verify = readInput(input)
   console.log('[web-gemini] 输入框:', input.isContentEditable ? 'contenteditable' : 'textarea',
     '| 填入后内容前40:', JSON.stringify(verify.slice(0, 40)),
-    '| 发送按钮:', describeButton(send),
     '| 基线回复数:', baseCount)
-  // 发送：填入后等待发送按钮可用（Gemini 输入有效后 disabled→enabled）再点击；
-  // 找不到/不可用则 Enter 发送。
-  let sendBtn = await findNewSubmitButton(input) || getSendButton(input)
-  const waitBtn = Date.now() + 3000
-  while (sendBtn && sendBtn.disabled && Date.now() < waitBtn) {
-    await sleep(300)
-    sendBtn = await findNewSubmitButton(input) || getSendButton(input)
+  // v0.4.1（发送链路加固）: 发送成功判定不再只看"输入框清空"，而是两个信号任一成立——
+  //   ① 输入框被清空（Gemini 提交后会清空 composer）② 出现新的回复节点（提交已发生）
+  // 依次尝试：显式发送按钮候选（多个）→ Enter（聚焦最内层可编辑元素）→ 表单 requestSubmit。
+  const sentOk = () => {
+    if (!readInput(input).trim()) return true
+    if (replyNodes().length > baseCount) return true
+    return false
   }
-  if (sendBtn && !sendBtn.disabled) {
-    clickButton(sendBtn)
-    console.log('[web-gemini] 点击发送按钮:', describeButton(sendBtn), '| disabled:', sendBtn.disabled)
-  } else {
-    pressEnter(input)
-    console.log('[web-gemini] 发送按钮不可用/未找到（disabled=' + (sendBtn ? sendBtn.disabled : 'n/a') + '），改用 Enter 发送')
+  const sendAttempts = []
+  let sent = false
+  const cands = sendButtonCandidates(input)
+  for (const b of cands) {
+    if (sent) break
+    const waitBtn = Date.now() + 1500
+    while (b.disabled && Date.now() < waitBtn) await sleep(200)
+    if (b.disabled) { sendAttempts.push(describeButton(b) + ':disabled'); continue }
+    clickButton(b)
+    await sleep(700)
+    sendAttempts.push(describeButton(b) + ':' + (sentOk() ? 'ok' : 'no-effect'))
+    if (sentOk()) sent = true
   }
-  // 发送确认：发送成功输入框会清空；1.5s 后未清空则 Enter 重试一次
-  await sleep(1500)
-  const after = input.isContentEditable ? (input.textContent || '') : (input.value || '')
-  if (after.trim()) {
-    console.warn('[web-gemini] 输入框未清空（发送可能未生效），Enter 重试')
-    pressEnter(input)
-    await sleep(1000)
-    const after2 = input.isContentEditable ? (input.textContent || '') : (input.value || '')
-    if (after2.trim()) {
-      const diag = 'SEND_FAIL: 输入框类型=' + (input.isContentEditable ? 'contenteditable' : 'textarea') +
-        ' | 填入后内容前40=' + JSON.stringify(verify.slice(0, 40)) +
-        ' | 按钮=' + (sendBtn ? describeButton(sendBtn) + '(disabled=' + sendBtn.disabled + ')' : '未找到') +
-        ' | 重试后残留=' + JSON.stringify(after2.slice(0, 30))
-      console.error('[web-gemini]', diag)
-      throw new Error(diag)
+  if (!sent) {
+    input.focus()
+    const target = document.activeElement && document.activeElement.isContentEditable ? document.activeElement : input
+    pressEnter(target)
+    await sleep(900)
+    sendAttempts.push('Enter:' + (sentOk() ? 'ok' : 'no-effect'))
+    if (sentOk()) sent = true
+  }
+  if (!sent) {
+    const form = input.closest('form')
+    if (form && typeof form.requestSubmit === 'function') {
+      try { form.requestSubmit(); await sleep(900); sendAttempts.push('requestSubmit:' + (sentOk() ? 'ok' : 'no-effect')) } catch (e) { sendAttempts.push('requestSubmit:throw') }
+      if (sentOk()) sent = true
     }
+  }
+  if (!sent) {
+    const diag = 'SEND_FAIL: 输入框=' + (input.isContentEditable ? 'contenteditable' : 'textarea') +
+      ' | 尝试=' + sendAttempts.join(' , ') +
+      ' | 残留=' + JSON.stringify(readInput(input).slice(0, 30)) +
+      ' | ' + domDiagnostics(input)
+    console.error('[web-gemini]', diag)
+    // v0.4.1: 不留垃圾——清掉自己写入的残留；并标记 needsReload 让 background 节流重载页面
+    // （claude-code 审核 Step 2 指出的覆盖盲区：SEND_FAIL 原先既不清理也不触发自愈）。
+    clearInput(input)
+    const err = new Error(diag)
+    err.needsReload = true
+    throw err
   }
   console.log('[web-gemini] 已发送任务', task.id)
   const answer = await waitReply(60000, baseCount, beforePageText, task.prompt)
   console.log('[web-gemini] 任务', task.id, '回复完成, 长度', answer.length, '| 内容前40:', JSON.stringify(answer.slice(0, 40)))
+  // v2.4.0（wg-gap-analysis 评审修复）：waitReply 有硬兜底 setTimeout(done, maxMs+5000)，
+  // 未捕获到回复文本时同样 resolve（空串）→ 原实现把空串当成功答案返回 → background 侧静默
+  // 失败 → 任务永久 processing。此处补终态检查：空回复一律 throw 带诊断。
+  if (!answer) {
+    const diag = 'EMPTY_REPLY: 65s 内未捕获到回复文本（选择器未命中 Gemini 回复 DOM，或页面确实无响应），当前 URL=' + location.href
+    console.error('[web-gemini]', diag)
+    throw new Error(diag)
+  }
   return answer
 }
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  // v0.4.0（P1）: 页面健康探针——同步返回（不做异步 DOM 等待），供 background 轮询携带上报
+  if (msg && msg.type === 'page-health') {
+    try { sendResponse(pageHealth()) } catch (e) { sendResponse({ authState: 'UNKNOWN', isReady: false, error: String((e && e.message) || e) }) }
+    return false
+  }
   if (msg && msg.type === 'handle-task') {
     handleTask(msg.task)
       .then((answer) => sendResponse({ answer }))

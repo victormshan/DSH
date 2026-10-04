@@ -1,11 +1,12 @@
 {
   "manifest_version": 3,
   "name": "dsh-web-gemini-ext",
-  "version": "0.3.0",
+  "version": "0.4.2",
   "description": "dsh-relay web-gemini 通道：主 agent ↔ gemini.google.com 网页自动交流（无 API Key、免配额）",
   "permissions": [
     "alarms",
-    "tabs"
+    "tabs",
+    "offscreen"
   ],
   "host_permissions": [
     "https://gemini.google.com/*",

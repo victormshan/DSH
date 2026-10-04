@@ -42,6 +42,77 @@ const BRIDGE_TOKEN = loadToken()
 
 const tasks = new Map() // id -> { id, prompt, status, answer, createdAt, completedAt }
 let seq = 0
+// v0.4.2（stab1_2 可观测性）: 扩展活跃度——lastPollAt/pollCount = 轮询心跳（扩展 SW 是否活着）；
+// lastClaimAt/claimCount = 真正认领任务（扩展是否在工作）。二者分开，才能区分：
+//   轮询停 → 扩展/标签页全停；轮询在但 claim 不涨 → 空闲（正常）；
+//   claim 涨但任务不终态 → content script 无响应（取到任务但不回传）。
+let lastPollAt = null
+let pollCount = 0
+let lastClaimAt = null
+let claimCount = 0
+// v0.4.0（Chrome 侧加固 P1）: 扩展上报的健康状态（轮询查询参数携带）
+let workerAuthState = null    // OK | LOGGED_OUT | UNKNOWN
+let workerIsReady = null      // true/false/null（未上报）
+let workerLastSeenAt = null
+// v0.4.2（可观测性）: 标签页存在性与补建结果（扩展查询参数 tc / ens 上报）
+//   tc  = chrome.tabs.query 命中的 gemini 标签页数量（0 = 无标签页）
+//   ens = 最近一次补建结果：created:<tabId> | throttled | error:<msg>
+// 用途：区分"扩展在跑但没标签页"（tc=0）与"标签页在但页面没就绪"（isReady=false）——
+// 此前两者在 /stats 里都表现为旧值，是本轮排查补建问题的主要盲区。
+let workerTabCount = null
+let workerEnsure = null
+// v0.4.2: 标签页指纹（pinned/active/windowId/url-path）——用于解释"扩展能看到、用户看不到"的标签页
+let workerTabInfo = null
+
+// v0.4.1（wg-gap-analysis 2026-09-10 评审加固）:
+//   ① 服务端超时兜底——processing 超过 PROCESSING_TIMEOUT_MS 仍无终态（消费者未上报
+//      submit-answer/submit-error，例如扩展崩溃/无人轮询/消费者中途放弃），主动判定 failed，
+//      状态机自身闭环，不依赖任何特定消费者的行为。阈值明显大于 content script 最坏耗时
+//      （~74s，见 dsh-web-relay cc 任务 wg-gap-analysis 的分析报告 Q4.2）与宿主侧 stallMs
+//      （默认 90s），故取 120s，确保是"最后防线"而不是抢跑。
+//   ② 历史任务清理——done/failed 超过 RETENTION_MS 后从内存 Map 删除，避免长期运行
+//      （配合 bridge-watchdog.mjs 常驻）内存无界增长。
+const PROCESSING_TIMEOUT_MS = 120000
+const RETENTION_MS = 3600000
+const SWEEP_INTERVAL_MS = 15000
+// v0.4.2（stab1_2 实测修复）: pending 无人认领超时——扩展 background.js 的 pollOnce 在
+// 「无 gemini.google.com 标签页」时直接 return（不取任务），此时任务会**永久停留 pending**
+// （2026-09-10 实测：任务 t0001 停 pending 15s+ 且 claimCount=0，宿主只能白等到 300s 超时）。
+// 60s 无任何消费者认领即判定 failed，并给出可诊断原因。
+const PENDING_TIMEOUT_MS = 60000
+
+function sweepTasks() {
+  const now = Date.now()
+  for (const [id, t] of tasks) {
+    // ① pending 无人认领（扩展未拾取）→ failed（防宿主白等超时）
+    if (t.status === 'pending' && t.createdAt) {
+      const age = now - new Date(t.createdAt).getTime()
+      if (age >= PENDING_TIMEOUT_MS) {
+        t.status = 'failed'
+        t.error = `无消费者认领：pending ${Math.round(age / 1000)}s 未被扩展拾取（可能 Chrome 无 gemini.google.com 标签页 / 扩展被停用 / SW 未运行）`
+        t.completedAt = new Date().toISOString()
+        console.warn('[bridge] 任务', id, '判定无人认领 failed')
+      }
+    }
+    // ② processing 超时（消费者未回传终态）→ failed
+    if (t.status === 'processing' && t.claimedAt) {
+      const elapsed = now - new Date(t.claimedAt).getTime()
+      if (elapsed >= PROCESSING_TIMEOUT_MS) {
+        t.status = 'failed'
+        t.error = `server 端超时兜底：processing ${Math.round(elapsed / 1000)}s 无终态（消费者未回传 submit-answer/submit-error）`
+        t.completedAt = new Date().toISOString()
+        console.warn('[bridge] 任务', id, '判定超时 failed')
+      }
+    }
+    // ③ 保留期清理
+    if ((t.status === 'done' || t.status === 'failed') && t.completedAt) {
+      const age = now - new Date(t.completedAt).getTime()
+      if (age >= RETENTION_MS) tasks.delete(id)
+    }
+  }
+}
+// unref(): sweep 定时器不应阻止进程退出（与 server.listen 常驻语义无冲突）
+setInterval(sweepTasks, SWEEP_INTERVAL_MS).unref()
 
 function authOk(req) {
   const h = req.headers['x-dsh-bridge-token'] || req.headers['X-DSH-Bridge-Token'] || ''
@@ -87,12 +158,49 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (req.method === 'GET' && url.pathname === '/next-task') {
+    // v0.4.3（stab1_2 实测修正）: 轮询心跳与任务认领**分开统计**——初版把每次 /next-task 调用
+    // 都计入 claimCount，而扩展每秒轮询一次，导致该计数实为"轮询次数"（实测 9.5 分钟累计 299），
+    // 无法区分"扩展在轮询但无任务（空闲，正常）"与"扩展取到任务（claim 增长）"。
+    lastPollAt = new Date().toISOString()
+    pollCount += 1
+    // v0.4.0（Chrome 侧加固 P1——健康上报 + 快速降级）: 扩展轮询可携带健康状态
+    //   查询参数：authState=OK|LOGGED_OUT|UNKNOWN、isReady=1|0
+    // 未登录 / 页面未就绪是"页面态不可控"最常见的两种情形——此时立即把 pending/processing
+    // 任务判 failed（宿主侧随即拿到 unavailable 并续降），不再死等 60s pending 早退或 120s sweep。
+    const qs = url.searchParams
+    const authState = qs.get('authState') || null
+    const isReady = qs.has('isReady') ? qs.get('isReady') === '1' : null
+    if (authState) workerAuthState = authState
+    if (isReady !== null) workerIsReady = isReady
+    // v0.4.2: 标签页存在性 / 补建结果（缺省不动，保持"未上报"语义）
+    if (qs.has('tc')) workerTabCount = Number(qs.get('tc'))
+    if (qs.has('ens')) workerEnsure = qs.get('ens')
+    if (qs.has('tinfo')) workerTabInfo = qs.get('tinfo')
+    workerLastSeenAt = lastPollAt
+    const blockedReason = authState === 'LOGGED_OUT'
+      ? '扩展上报未登录（gemini.google.com 未登录）'
+      : (isReady === false ? '扩展上报页面未就绪（输入框/选择器不可用）' : null)
+    if (blockedReason) {
+      let n = 0
+      for (const t of tasks.values()) {
+        if (t.status === 'pending' || t.status === 'processing') {
+          t.status = 'failed'
+          t.error = `扩展侧不可用：${blockedReason}`
+          t.completedAt = new Date().toISOString()
+          n += 1
+        }
+      }
+      if (n > 0) console.warn('[bridge] 扩展上报不可用 →', n, '个任务立即判 failed:', blockedReason)
+    }
     // 找最早 pending 任务（同 id 幂等：processing 任务若上次未完成可重取）
     let picked = null
     for (const t of tasks.values()) {
       if (t.status === 'pending') { picked = t; break }
     }
-    if (!picked) return json(res, 200, { ok: true, task: null })
+    if (!picked) return json(res, 200, { ok: true, task: null, worker: { authState, isReady } })
+    // 仅当真正认领任务时才计 claim（这才是"扩展在工作"的信号）
+    lastClaimAt = new Date().toISOString()
+    claimCount += 1
     picked.status = 'processing'
     picked.claimedAt = new Date().toISOString()
     return json(res, 200, { ok: true, task: { id: picked.id, prompt: picked.prompt } })
@@ -129,8 +237,16 @@ const server = http.createServer(async (req, res) => {
     return json(res, 200, { ok: true, total: tasks.size, byStatus: {
       pending: [...tasks.values()].filter((t) => t.status === 'pending').length,
       processing: [...tasks.values()].filter((t) => t.status === 'processing').length,
-      done: [...tasks.values()].filter((t) => t.status === 'done').length
-    } })
+      done: [...tasks.values()].filter((t) => t.status === 'done').length,
+      // v0.4.1: 补 failed 计数（原枚举遗漏——代码已支持 failed 状态，排查时只能靠
+      // total-pending-processing-done 反推，本次事故排查即受此困扰）
+      failed: [...tasks.values()].filter((t) => t.status === 'failed').length
+    },
+    // v0.4.2/0.4.3（stab1_2）: 扩展活跃度双指标——lastPollAt/pollCount=轮询心跳；
+    // lastClaimAt/claimCount=真正认领任务（区分"空闲轮询"/"扩展停"/"取到不回传"）
+    lastPollAt, pollCount, lastClaimAt, claimCount, serverUptimeSec: Math.round(process.uptime()),
+    // v0.4.0（P1）: 扩展健康状态（未登录/页面未就绪可在前端一眼看出，不必等任务超时）
+    worker: { authState: workerAuthState, isReady: workerIsReady, tabCount: workerTabCount, tabInfo: workerTabInfo, ensure: workerEnsure, lastSeenAt: workerLastSeenAt } })
   }
 
   // v0.3.0: 守护状态端点——popup 用它探测守护链是否正常

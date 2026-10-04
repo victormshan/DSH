@@ -1,0 +1,15 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="utf-8">
+  <title>dsh-web-gemini keepalive</title>
+</head>
+<body>
+  <!-- v0.4.0（Chrome 侧加固 P0）: offscreen 文档——唯一职责是承载"保活心跳"，
+       使 MV3 Service Worker 不被回收（SW 是 1s 级轮询的宿主，一旦被回收轮询即停，
+       表现为 measured 现象：桥接 /stats 的 lastPollAt 停止更新 → 宿主只能靠 pending 早退感知）。
+       本页面不执行任何 DOM 抓取/网络请求（避免与 content script 职责重叠，
+       也避免 offscreen 被滥用引起的合规风险）。 -->
+  <script src="offscreen.js"></script>
+</body>
+</html>
