@@ -151,6 +151,25 @@ function clearInput(el) {
   return !readInput(el).trim()
 }
 
+// ---- v0.4.3（发送判定按提示长度等待）----
+// 事故（2026-10-04 实测）：长提示（6KB 以上）点击发送后 Gemini 需要数秒才清空输入框，原实现只等
+// 0.7s（按钮）/0.9s（Enter）就判 no-effect，接着尝试下一种方式（可能重复发送），最后判 SEND_FAIL
+// 并清掉其实已经发出去的输入。现在每次尝试后按提示长度持续检测，全部方式失败后再给一段宽限。
+/** 发送后等待"已发送"信号的时长：2s 起，每 4 个字符加 1ms，最多 10s。 */
+function sendSettleMs(promptLength) {
+  return Math.min(10000, 2000 + Math.ceil((promptLength || 0) / 4))
+}
+
+/** 在 ms 毫秒内每 200ms 检测一次 ok()，任一次为真即返回 true。 */
+async function waitSent(ok, ms, step = 200) {
+  const deadline = Date.now() + ms
+  while (true) {
+    if (ok()) return true
+    if (Date.now() >= deadline) return false
+    await sleep(Math.min(step, Math.max(0, deadline - Date.now())))
+  }
+}
+
 // ---- v0.4.3（自身残留识别）----
 // 事故（2026-10-04 实测）：发送失败或页面中断后，扩展自己写入的提示残留在输入框里；下一次任务
 // 把它当成「用户正在输入」报 INPUT_BUSY 放弃——每次都要白白失败一轮，且残留一直不清。
@@ -499,31 +518,39 @@ async function handleTask(task) {
   }
   const sendAttempts = []
   let sent = false
+  const settleMs = sendSettleMs(task.prompt.length)
   const cands = sendButtonCandidates(input)
   for (const b of cands) {
     if (sent) break
-    const waitBtn = Date.now() + 1500
+    // 长提示粘贴后按钮可能要更久才可用
+    const waitBtn = Date.now() + Math.max(1500, settleMs / 2)
     while (b.disabled && Date.now() < waitBtn) await sleep(200)
     if (b.disabled) { sendAttempts.push(describeButton(b) + ':disabled'); continue }
     clickButton(b)
-    await sleep(700)
-    sendAttempts.push(describeButton(b) + ':' + (sentOk() ? 'ok' : 'no-effect'))
-    if (sentOk()) sent = true
+    sent = await waitSent(sentOk, settleMs)
+    sendAttempts.push(describeButton(b) + ':' + (sent ? 'ok' : 'no-effect'))
   }
   if (!sent) {
     input.focus()
     const target = document.activeElement && document.activeElement.isContentEditable ? document.activeElement : input
     pressEnter(target)
-    await sleep(900)
-    sendAttempts.push('Enter:' + (sentOk() ? 'ok' : 'no-effect'))
-    if (sentOk()) sent = true
+    sent = await waitSent(sentOk, settleMs)
+    sendAttempts.push('Enter:' + (sent ? 'ok' : 'no-effect'))
   }
   if (!sent) {
     const form = input.closest('form')
     if (form && typeof form.requestSubmit === 'function') {
-      try { form.requestSubmit(); await sleep(900); sendAttempts.push('requestSubmit:' + (sentOk() ? 'ok' : 'no-effect')) } catch (e) { sendAttempts.push('requestSubmit:throw') }
-      if (sentOk()) sent = true
+      try {
+        form.requestSubmit()
+        sent = await waitSent(sentOk, settleMs)
+        sendAttempts.push('requestSubmit:' + (sent ? 'ok' : 'no-effect'))
+      } catch (e) { sendAttempts.push('requestSubmit:throw') }
     }
+  }
+  if (!sent) {
+    // 宽限：某次尝试可能只是生效得慢——确认确实没发出去再清理，避免清掉已发送的提示
+    sent = await waitSent(sentOk, settleMs)
+    if (sent) sendAttempts.push('late:ok')
   }
   if (!sent) {
     const diag = 'SEND_FAIL: 输入框=' + (input.isContentEditable ? 'contenteditable' : 'textarea') +
@@ -533,8 +560,8 @@ async function handleTask(task) {
     console.error('[web-gemini]', diag)
     // v0.4.1: 不留垃圾——清掉自己写入的残留；并标记 needsReload 让 background 节流重载页面
     // （claude-code 审核 Step 2 指出的覆盖盲区：SEND_FAIL 原先既不清理也不触发自愈）。
-    clearInput(input)
-    const err = new Error(diag)
+    const cleared = clearInput(input)
+    const err = new Error(cleared ? diag : diag + ' | 残留未能清除')
     err.needsReload = true
     throw err
   }
@@ -573,5 +600,5 @@ console.log('[web-gemini] content 已加载')
 
 // 测试钩子：仅在 Node 测试环境（vm 上下文提供 __exports）中导出纯函数，浏览器中无副作用。
 if (typeof __exports === 'object' && __exports) {
-  Object.assign(__exports, { promptFingerprint, rememberOwnPrompt, isOwnResidue, clearInput, readInput })
+  Object.assign(__exports, { promptFingerprint, rememberOwnPrompt, isOwnResidue, clearInput, readInput, sendSettleMs, waitSent })
 }

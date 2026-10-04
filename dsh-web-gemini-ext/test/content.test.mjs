@@ -86,3 +86,22 @@ test('clearInput 不再按 Enter（Enter 会把残留发送出去），清不掉
   }
   assert.equal(c.clearInput(ok), true)
 })
+
+test('发送判定等待时长随提示长度增长且有上下限', () => {
+  const c = load()
+  assert.equal(c.sendSettleMs(0), 2000)
+  assert.equal(c.sendSettleMs(6000), 3500)
+  assert.equal(c.sendSettleMs(35000), 10000)
+  assert.ok(c.sendSettleMs(100000) <= 10000)
+})
+
+test('waitSent：信号稍晚出现也能捕获；始终不出现则在时限后返回 false', async () => {
+  const c = load()
+  const start = Date.now()
+  let flips = 0
+  assert.equal(await c.waitSent(() => ++flips >= 3, 2000, 20), true)
+  assert.ok(Date.now() - start < 1000)
+  const t0 = Date.now()
+  assert.equal(await c.waitSent(() => false, 150, 20), false)
+  assert.ok(Date.now() - t0 >= 140)
+})
