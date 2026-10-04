@@ -126,7 +126,7 @@ const providers = {
         return false
       }
     },
-    async ask(prompt, { timeoutMs = 300000, attempts = 3 } = {}) {
+    async ask(prompt, { timeoutMs = 300000, attempts = 4 } = {}) {
       let lastErr
       for (let attempt = 1; attempt <= attempts; attempt++) {
         try {
@@ -134,7 +134,11 @@ const providers = {
         } catch (e) {
           lastErr = e
           // The extension occasionally fails to submit (e.g. leftover composer text); retry once.
-          if (attempt < attempts) process.stderr.write(`[external-ai] web-gemini attempt ${attempt} failed: ${e.message}; retrying\n`)
+          if (attempt < attempts) {
+            process.stderr.write(`[external-ai] web-gemini attempt ${attempt} failed: ${e.message}; retrying\n`)
+            // A failed send can leave text in Gemini's composer (next try: INPUT_BUSY); give the extension time.
+            await new Promise((r) => setTimeout(r, 5000))
+          }
         }
       }
       throw lastErr

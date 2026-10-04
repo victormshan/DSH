@@ -23,7 +23,7 @@ const HERE = dirname(fileURLToPath(import.meta.url))
 const MAX_DIFF_CHARS = 60000
 // web-gemini relays through a browser and times out on long reviews (~35KB failed every time,
 // short prompts pass): large diffs are reviewed in chunks of whole files, each needing a verdict.
-const CHUNK_CHARS = Number(process.env.AUTO_ITERATE_CHUNK_CHARS || 10000)
+const CHUNK_CHARS = Number(process.env.AUTO_ITERATE_CHUNK_CHARS || 6000)
 
 export function parseVerdict(text) {
   const m = /VERDICT\s*[:：]\s*(APPROVED|REJECTED)/i.exec(text || '')
@@ -160,6 +160,16 @@ async function cmdRun(args) {
     const prompt = buildPrompt(state, staged, evidence, chunk, i, parts.length)
     prompts.push(prompt)
     if (parts.length > 1) process.stderr.write(`[review] chunk ${i + 1}/${parts.length}: ${chunk.files.join(', ')}\n`)
+    // Identical prompt (same staged chunk, same context) already answered by an external reviewer
+    // in an earlier, interrupted run: reuse that answer instead of asking again.
+    const cacheFile = join(reviewsDir(state.id), '.chunk-cache', `${createHash('sha256').update(prompt).digest('hex')}.json`)
+    if (existsSync(cacheFile)) {
+      const cached = JSON.parse(readFileSync(cacheFile, 'utf8'))
+      if (parseVerdict(cached.answer) === 'rejected') verdict = 'rejected'
+      reply = cached
+      answers.push(`${parts.length > 1 ? `### 第 ${i + 1}/${parts.length} 段（${chunk.files.join('、')}）（复用先前对同一提示的审核）\n` : ''}${cached.answer}`)
+      continue
+    }
     try {
       reply = await ask(prompt, { provider: args.provider || state.reviewProvider || 'auto' })
       let v = parseVerdict(reply.answer)
@@ -173,6 +183,8 @@ async function cmdRun(args) {
         process.exit(4)
       }
       if (v === 'rejected') verdict = 'rejected'
+      mkdirSync(dirname(cacheFile), { recursive: true })
+      writeFileSync(cacheFile, JSON.stringify(reply))
       answers.push(parts.length > 1 ? `### 第 ${i + 1}/${parts.length} 段（${chunk.files.join('、')}）\n${reply.answer}` : reply.answer)
     } catch (e) {
       console.log(JSON.stringify({ verdict: null, error: e.message, unavailable: Boolean(e.unavailable), chunk: i + 1 }))

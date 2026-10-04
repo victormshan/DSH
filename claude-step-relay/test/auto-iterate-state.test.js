@@ -220,3 +220,26 @@ test('chunkDiff：小文件合并、超大文件按行切分', async () => {
   assert.ok(chunks.length > 2 && chunks.every((c) => c.diff.length <= 120 + 20))
   assert.match(chunks[1].files[0], /z（第 1\/\d+ 部分）/)
 })
+
+test('review run：中断后重跑，已审过的相同分段复用先前回答，只问失败的段', async () => {
+  const t = setup()
+  // 第一次：第 1 段成功，第 2 段一直失败（4 次）；第二次：只应再问第 2 段
+  const fail = { fail: 'NO_RESPONSE' }
+  const b = await mockBridge(['VERDICT: APPROVED\n\n- 无', fail, fail, fail, fail, 'VERDICT: APPROVED\n\n- 无'])
+  try {
+    init(t, 'resume', 1)
+    fs.writeFileSync(path.join(t.repo, 'a.txt'), 'A'.repeat(300) + '\n')
+    fs.writeFileSync(path.join(t.repo, 'b.txt'), 'B'.repeat(300) + '\n')
+    const env = { ...t.env, DSH_RELAY_BRIDGE: b.url, AUTO_ITERATE_CHUNK_CHARS: '600' }
+    const first = await runAsync(t, env, 'run', '--id', 'resume', '--provider', 'web-gemini')
+    assert.equal(first.code, 1)
+    assert.equal(b.seen.prompts.length, 5)
+    const second = await runAsync(t, env, 'run', '--id', 'resume', '--provider', 'web-gemini')
+    assert.equal(second.code, 0, second.err)
+    assert.equal(b.seen.prompts.length, 6, '第 1 段复用，只再问 1 次')
+    assert.equal(second.out.verdict, 'approved')
+    assert.match(JSON.parse(fs.readFileSync(second.out.record, 'utf8')).text, /复用先前对同一提示的审核/)
+  } finally {
+    b.server.close()
+  }
+})
