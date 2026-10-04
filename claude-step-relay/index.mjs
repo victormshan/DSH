@@ -60,7 +60,7 @@ server.tool(
 
 server.tool(
   'step_relay_append_trace',
-  '手动追加一条三方轨迹记录（比如用户反馈、关键决策），role 建议用 用户 或 Claude。',
+  '手动追加一条三方轨迹记录（比如用户反馈、关键决策），role 建议用 用户 或 Claude。“外部审核”“review-gate”开头的角色保留给审核门，会被拒绝。',
   { exprId: z.string(), role: z.string(), text: z.string() },
   safe(({ exprId, role, text }) => {
     store.appendTrace(exprId, role, text)
@@ -84,7 +84,7 @@ server.tool(
 
 server.tool(
   'step_relay_read_trace',
-  '读取指定任务的完整三方轨迹（Markdown 原文）。',
+  '读取指定任务的完整三方轨迹（Markdown）：主轨迹与 review-gate 写入的外部审核记录按时间合并。',
   { exprId: z.string() },
   safe(({ exprId }) => store.readTrace(exprId))
 )

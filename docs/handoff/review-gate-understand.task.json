@@ -1,0 +1,16 @@
+{
+  "taskId": "understand-review-gate-handoff",
+  "kind": "understand",
+  "title": "理解 review-gate 交接文档，核对 dsh-web-relay 需要的改动",
+  "prompt": "你是 dsh-web-relay 的维护方（Claude Code headless，由 cc 通道派发）。只读任务：不要修改任何仓库文件，不要 git commit。\n\n1. 完整阅读交接文档：`git -C /mnt/d/dsh fetch -q origin main && git -C /mnt/d/dsh show origin/main:docs/handoff/review-gate-handoff.md`（不要改 /mnt/d/dsh 的工作区）。\n2. 在 /mnt/d/dsh-web-relay 中逐条核对第 2、3、5、6 节涉及的代码：bridge 停滞判定（lib/bridge-poll.js、lib/index.js 中 BRIDGE_STALL_MS 与整体 deadline）、INPUT_BUSY/INPUT_STUCK 的错误分类与重试、对 auto-iterate Node 脚本或 tools/external-ai.mjs 的调用、以「外部审核」「review-gate」角色写 step-relay 轨迹的地方。\n3. 用 dsh-web-gemini-ext 0.4.3 的超时公式（文档第 1 节）算出 2 000 / 6 000 / 10 000 字符提示下宿主现有阈值是否会误判停滞。\n\n交付（写入 out/）：\n- understanding.md：每条待办（文档第 7 节）一小节——现状（引用文件:行号）、是否需要改、建议改法（伪代码或补丁草案）、需要的测试；最后列出文档与代码不一致或文档没说清的地方。\n- review.md：第一行 `VERDICT: APPROVED`（文档与代码现状一致、待办清单完整）或 `VERDICT: REJECTED`（有遗漏或错误），空一行后写理由要点。\n完成后在任务根目录写 done.flag。",
+  "refs": [
+    "/mnt/d/dsh-web-relay/lib/bridge-poll.js",
+    "/mnt/d/dsh-web-relay/lib/index.js"
+  ],
+  "acceptance": "out/understanding.md 覆盖交接文档第 7 节每一条待办，现状引用具体文件与行号；第 3 节的停滞误判有按公式算出的数值结论；out/review.md 首行为 VERDICT；未修改任何仓库文件。",
+  "outputDir": "out",
+  "expectArtifacts": [
+    "understanding.md",
+    "review.md"
+  ]
+}
