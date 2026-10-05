@@ -7,7 +7,8 @@
 
 auto-iterate 的审核门从「技能目录里的 Node 脚本」换成了独立的 Rust 服务 **review-gate**（`reviewgate` 系统用户，
 `127.0.0.1:7878`）。网页版 Gemini 通道（dsh-web-gemini-ext）同时修了三处会导致长提示失败的问题，升到 0.4.3。
-dsh 侧要做的：**① 宿主的 bridge 停滞阈值按提示长度缩放；② 不再调用 Node 门；③ 需要审核门时走 review-gate 的 HTTP API。**
+dsh 侧要做的：**① 宿主的 bridge 停滞阈值按提示长度缩放；② `INPUT_BUSY` 可重试、`INPUT_STUCK` 需人工。** dsh-web-relay 有自己的三方审核，
+**不需要**接入 review-gate；第 4 节的 API 仅供将来需要时参考。
 
 ## 1. dsh-web-gemini-ext 0.4.3（分支 `gemini-ext-fixes`，tag `auto-iterate/gemini-ext-fixes/v1..v3`）
 
@@ -61,10 +62,15 @@ bridgeProcessingTimeoutMsFor(len) = max(120000, backgroundTimeoutMsFor(len) + 30
 同时 `timeoutMs`（整体 deadline）不应小于 `bridgeProcessingTimeoutMsFor(len)`。补测试：6 000 字符的任务 processing 120 秒时
 `classifyBridgeTask` 不应返回 `stalled`。
 
-## 4. review-gate 的 HTTP API（dsh 需要审核门时直接调用）
+## 4. review-gate 的 HTTP API（参考；dsh-web-relay 当前不需要接入）
 
-服务：`http://127.0.0.1:7878`；除 `/health`、`/pubkey` 外都要 `Authorization: Bearer <token>`，token 在
-`/etc/review-gate/client.token`（dsh 运行用户需要读权限，安装脚本给实施方用户配好了；dsh 用户不同就再加一个 ACL 或副本）。
+review-gate 是 Claude Code 的 auto-iterate 用的审核门。dsh-web-relay 已有自己的三方审核（web-gemini 等外部 AI），
+两者不必打通。只有将来想让 DSH 自己的提交也带 review-gate 签名、由 CI 验证时，才需要在插件里加客户端。
+
+服务：`http://127.0.0.1:7878`；除 `/health`、`/pubkey` 外都要 `Authorization: Bearer <token>`。token 的读取顺序：
+`REVIEW_GATE_TOKEN` → `REVIEW_GATE_TOKEN_FILE` → `/etc/review-gate/client.token`（root:reviewgate 0640，实施方读不到是正常的）
+→ `~/.config/review-gate/token`（本机没有 `setfacl`，安装脚本据此给 administrator 建了这份 0600 副本，客户端自动使用）。
+**不要把实施方用户加入 reviewgate 组**：组成员还能读 `/etc/review-gate/env`（审核用的 API key），会削弱隔离，安装脚本对此有警告。
 
 | 方法与路径 | 请求体 | 返回 |
 |---|---|---|
@@ -107,7 +113,7 @@ bridgeProcessingTimeoutMsFor(len) = max(120000, backgroundTimeoutMsFor(len) + 30
 - [ ] dsh-web-relay：宿主 `stallMs` / `timeoutMs` 按提示长度缩放（第 3 节），加测试。
 - [ ] dsh-web-relay：`INPUT_BUSY` 可重试、`INPUT_STUCK` 需人工（第 2 节）。
 - [ ] 去掉对 Node 门脚本和 `external-ai.mjs` 的调用（第 5 节）。
-- [ ] 需要审核门的流程改走 review-gate HTTP API（第 4 节），确认 dsh 运行用户能读 token。
+- [ ] （可选，当前不需要）将来若要 DSH 提交带 review-gate 签名，再在插件里加客户端（第 4 节）。
 - [ ] 不再用保留角色写 step-relay 轨迹（第 6 节）。
 - [ ] 合并 DSH 仓库的 `gemini-ext-fixes` 后在 Chrome 里重新加载扩展。
 
