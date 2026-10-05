@@ -1,0 +1,12 @@
+review-gate-attestation: v1
+task: handoff-clarify
+version: 1/1
+commit: a2dd94114f52432fdd516478d65186a2aa68f3a2
+tree: 9fccbddf75650fcd63d5d56b2663bc82358a9860
+parent: b9c22bab0dd8efe6f6b15fab061be2743d27a1fe
+review: v1-1
+reviewer: web-gemini/web-gemini
+verdict: approved
+at: 2026-10-05T12:14:41Z
+signature: Nfx9p+QL4/Mcd+CdEslqnekKDNXUZRYeg5Uw4bovpb+YoFx2TEDRMsHmPUJRktJm7det+NA3W2ejyuBXJ8AoCw==
+key: ITU9Oc3AbiC/Q/LYPwld2b+OC2rxlqHbvCO7IQcGdXw=
